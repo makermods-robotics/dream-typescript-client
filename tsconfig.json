@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["es2023", "dom"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": false,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "paths": {
+      "@makermods/dreamlabs": ["./src/index.ts"],
+      "@makermods/dreamlabs/ik": ["./src/ik/index.ts"],
+      "@makermods/dreamlabs/node": ["./src/node/index.ts"],
+      "@makermods/dreamlabs/browser": ["./src/browser.ts"],
+      "@makermods/dreamlabs/internal": ["./src/internal.ts"]
+    }
+  },
+  "include": ["src", "test", "examples", "scripts/**/*.ts", "vitest.config.ts"]
+}

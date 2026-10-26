@@ -1,0 +1,10 @@
+License: TBD
+
+The license of @makermods/dreamlabs has not been chosen yet. Until it is, no license is granted: all rights
+reserved by MakerMods.
+
+This package is a port of Dream Labs' `dreamlabs-client` 1.0.8 and parts of `dreamlabs` 1.0.17 (both
+Apache-2.0), and bundles data derived from `dreamlabs` (dream_ik's arm specifications and URDF kinematic chains,
+in src/ik/arms.data.ts, and dream_ik's metal.urdf in test/fixtures/). Whatever license is chosen must carry
+Apache-2.0's attribution and NOTICE obligations for that material (see those packages' LICENSE, NOTICE and
+THIRD-PARTY-LICENSES.md files).

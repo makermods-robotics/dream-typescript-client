@@ -1,0 +1,56 @@
+{
+  "name": "@makermods/dreamlabs",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Dream Labs' Dream API: run Dream-1 policies from browsers, Node, Bun and Deno.",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./ik": {
+      "types": "./dist/ik/index.d.ts",
+      "default": "./dist/ik/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "default": "./dist/internal.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.core.json",
+    "test": "vitest run",
+    "fidelity": "node scripts/fidelity.mjs",
+    "fixtures": "../dreamlabs-venv/bin/python -I scripts/gen_fixtures.py",
+    "fixtures:check": "../dreamlabs-venv/bin/python -I scripts/gen_fixtures.py --check-unpatched",
+    "arms": "../dreamlabs-venv/bin/python -I scripts/gen_arms.py"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

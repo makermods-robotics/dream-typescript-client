@@ -18,7 +18,8 @@ export async function servePage(path: string, response: ServerResponse, root: UR
     response.writeHead(404, { "Content-Type": "text/plain" }).end(`build the page first: ${page[0]} is missing (see README.md)`);
     return;
   }
-  response.writeHead(200, { ...headers, "Content-Type": page[1] }).end(body);
+  // Never framed by another page, which could click Start for the visitor.
+  response.writeHead(200, { ...headers, "Content-Type": page[1], "Content-Security-Policy": "frame-ancestors 'none'", "X-Frame-Options": "DENY" }).end(body);
 }
 
 /** The sign-in cookie's name: the page gets it, and only requests that carry it are forwarded. */

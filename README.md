@@ -103,8 +103,11 @@ export default {
 };
 ```
 
-`proxyUrl` is the default of `baseUrl`, `platformUrl` and `dataUrl`, and turns `proxyHeaders` on: a browser cannot
-set `User-Agent`, so the client sends `Dream-Client-Version` and `Dream-Client-Instance` (8 random hex digits per
+`proxyUrl` is the default of `baseUrl`, `platformUrl` and `dataUrl`, and always turns `proxyHeaders` on (`proxyHeaders:
+false` with it is refused): the proxy refuses a GET without `Dream-Client-Version`. If you point `baseUrl`,
+`platformUrl` or `dataUrl` at a proxy one by one instead, set `proxyHeaders: true`. With an `apiKey`, every absolute
+service URL must be `https://` or this computer's (`allowInsecureHttp: true` for a network you trust). A browser cannot set `User-Agent`, so with
+`proxyHeaders` the client sends `Dream-Client-Version` and `Dream-Client-Instance` (8 random hex digits per
 policy), and the proxy builds `User-Agent: dream-client/<version> <instance>` upstream, as the Python client sends it.
 [`examples/browser-proxy/`](examples/browser-proxy/) has a Node server and a page.
 
@@ -152,14 +155,27 @@ createDreamProxy({
 
 Upstream statuses pass through unchanged (DreamAPI reports every outcome in the body's status envelope; a 204, 205
 or 304 has no body), and the answer carries only `Content-Type`, `Cache-Control: no-store` and the CORS headers. **The
-answer is parsed and written anew, never passed through**, and only in the shape its route produces: for get_action
-and end_session the `status` envelope (`code`, `name`, `reason`, `retryable`, `retry_after_s`, `detail`, `trace_id`),
-`session_id`, `actions` and `timing`; for the models list each model's fields the client reads; for training data
-`cameras` and `prompts`; for a platform or data-service refusal `{ error: { code, message } }`. An answer that is not
-JSON, or not of that shape, is withheld (502, `upstream answer withheld`), and so is one in which any object key or
-string carries the key (and so `Bearer <key>`), as written or decoded from `\uXXXX` escapes, percent-encoding, or any
-run of base64, base64url or hex, at every alignment, two levels deep. That is the guarantee: the key does not leave in
-those forms; a key split across strings or otherwise transformed is not detected. **The client identity sent upstream is the proxy's,
+answer is parsed and written anew, never passed through**, and only in the shape its route produces:
+
+- get_action and end_session: the `status` envelope (`code` a string; `name`, `reason`, `detail`, `trace_id` strings
+  or null; `retryable` a boolean or null; `retry_after_s` a number or null; a field of another type is left out),
+  `session_id`, `actions` (an object of numbers, null, arrays and objects only: no strings, since these become joint
+  targets) and of `timing` only `gateway_ms` and `serve_infer_ms`, when numbers (null, absent or unfamiliar timing is
+  dropped, the answer kept).
+- The models list: each model's fields the client reads, each of its type. Training data: `cameras` and `prompts`.
+- A refusal of the platform or the data service keeps its status (401 stays 401, so the client reports a key refusal
+  and does not retry it), with `{ error: { code, message } }`, or a generic one when its own body does not fit.
+
+**Every number must be finite**: an answer holding `1e400` (an infinity once parsed, which re-serialising would write as
+`null`) is withheld, and so is one that is not JSON or not of its shape (502, `upstream answer withheld`). So is one in
+which any object key or string carries the key, by exact match of the configured key (and so `Bearer <key>`), as
+written or decoded from `\uXXXX` escapes, percent-encoding, or any run of base64, base64url or hex, at every alignment,
+two levels deep. That is the guarantee: the key does not leave in those forms; a key split across strings or otherwise
+transformed is not detected. The check is bounded (`ANSWER_LIMITS`: 32 levels of nesting, strings of 4096 characters,
+keys of 256, a million values, 4 MiB of decoding); an answer past a bound is withheld too. The key itself must be at
+least 16 letters, digits or `._~+/=-` with no spaces, so the exact match can never hit a field name, and it is the one
+value both sent and looked for. Upstreams must be `https://` (or this computer's); `allowInsecureHttp: true` lets the
+key go over plain http on a network you trust. **The client identity sent upstream is the proxy's,
 never the caller's:** `Dream-Client-Version: <clientVersion>` and `User-Agent: dream-client/<clientVersion>
 <instance>` on the POSTs (the instance from the client's `Dream-Client-Instance`, or the one a non-browser client's
 `User-Agent` names), and `User-Agent: dream-client/<clientVersion>` on the GETs. The version decides whether the
@@ -176,7 +192,11 @@ Redirects are not followed, and the key is never logged or put in an error. A ca
 it, and its GETs carry no `Origin`; only the `Host` check stops it, so `allowedHosts` is required. List the names the
 proxy is reached by (`["127.0.0.1:8787", "localhost:8787"]` for a local one). Pass `"any"` only where something in
 front already routes by name: a Cloudflare Worker on its routes or custom domain, a reverse proxy that matches
-`server_name` / `Host` and drops the rest. That router is then where the check lives.
+`server_name` / `Host` and drops the rest. That router is then where the check lives. Hosts match by their canonical form, for the
+request's scheme: lower case, IPv6 written the URL standard's way (`[0:0::1]` is `[::1]`), the scheme's default port
+dropped (`example.com:443` is `example.com` over https, not over http), and a trailing dot dropped (`example.com.` is
+`example.com`). On Node, `nodeHandler` refuses a request with no Host, with two Host fields, or with an absolute-form
+target. `Origin` matches exactly, as browsers send it.
 
 **Sign-in.** **Whoever reaches the proxy spends your key:** give it `authorize`, or put your own sign-in in front of
 it; the origin and host checks are not a sign-in. `authorize` sees the request's URL, method, headers and signal but
@@ -441,8 +461,11 @@ These differences are deliberate:
   the credentials file, because a browser has no file. In Node, `createClient()` reads the file.
 - **Training-input lines** list the cameras in the order the episode's frames were first set; Python iterates a set,
   whose order varies from run to run.
-- **URDF numbers** are read as Python's `float()` reads them (`0x10` is refused, `1_0` is 10), then must be finite. A
-  negative joint velocity is refused; Python takes it as the 3 rad/s cap, as it does 0.
+- **URDF numbers** are read as Python's `float()` reads them, in linear time: `0x10` and a leading U+FEFF are refused,
+  `1_0` is 10, a full-width or Arabic-Indic digit is its digit, and non-ASCII whitespace at the ends is dropped (the
+  digit and whitespace tables are generated from the reference Python). Then they must be finite. A blank `velocity`
+  is refused, as Python's `float(" ")` fails; an empty one is 0, the cap. A negative joint velocity is refused; Python
+  takes it as the 3 rad/s cap, as it does 0.
 - **Malformed training records** (a camera size that is not a finite positive width and height, a prompt that is not
   a string) are left out of the comparison; Python fails getAction() on them.
 - **JSON safety.** `NaN`, `Infinity`, `undefined`, bigints, binary data, `Map`, `Set` and class instances in an

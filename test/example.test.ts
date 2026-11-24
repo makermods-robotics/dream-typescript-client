@@ -23,6 +23,8 @@ describe("examples/browser-proxy", () => {
       const page = await fetch(`${url}/`);
       expect(page.status).toBe(200);
       expect(page.headers.get("content-type")).toBe("text/html");
+      expect(page.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
+      expect(await page.text()).toContain('<button id="start"');
       expect(errors).toEqual([]);
     } finally {
       await new Promise<void>((resolve) => empty.close(() => resolve()));
@@ -33,5 +35,15 @@ describe("examples/browser-proxy", () => {
     expect(hasSession(`a=1; ${SESSION_COOKIE}=abc`, "abc")).toBe(true);
     expect(hasSession(`${SESSION_COOKIE}=abcd`, "abc")).toBe(false);
     expect(hasSession(null, "abc")).toBe(false);
+  });
+
+  it("starts the camera and the inference loop only on the Start button", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const app = await readFile(new URL("../examples/browser-proxy/app.ts", import.meta.url), "utf8");
+    // The only call of main() is inside the button's click handler.
+    expect(app.match(/\bmain\(\)(?!: )/g)).toHaveLength(1);
+    expect(app).toMatch(/start\.addEventListener\("click", \(\) => \{\n\s+start\.disabled = true;\n\s+main\(\)/);
+    expect(app.indexOf("getUserMedia")).toBeLessThan(app.indexOf("start.addEventListener"));
+    expect(app.slice(0, app.indexOf("async function main")).includes("getUserMedia")).toBe(false);
   });
 });

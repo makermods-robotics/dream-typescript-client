@@ -28,7 +28,7 @@
  * sign-in.
  */
 
-import { authorization, checkServiceUrl, DEFAULT_DATA_URL, DEFAULT_GATEWAY_URL, DEFAULT_PLATFORM_URL } from "./credentials.js";
+import { authorization, checkServiceUrl, DEFAULT_DATA_URL, DEFAULT_GATEWAY_URL, DEFAULT_PLATFORM_URL, PROXY_KEY, PROXY_KEY_MIN, requireHttps } from "./credentials.js";
 import { DreamConfigError } from "./errors.js";
 import { FINE_TUNE_PREFIX, pyQuote } from "./trained-inputs.js";
 import { checkClientVersion, CLIENT_INSTANCE_HEADER, CLIENT_VERSION_HEADER, END_SESSION_PATH, GET_ACTION_PATH, USER_AGENT_PRODUCT } from "./transport.js";
@@ -88,6 +88,11 @@ export interface DreamProxyOptions {
   authorize?: (request: Request) => boolean | Response | Promise<boolean | Response>;
   /** The `fetch` that reaches Dream Labs; the global one by default. */
   fetch?: (input: string, init: RequestInit) => Promise<Response>;
+  /**
+   * Let the key go to a plain `http://` upstream on another computer, on a network you trust. Off by default: every
+   * upstream must be `https://` or this computer's (`localhost`, 127.0.0.0/8, `[::1]`).
+   */
+  allowInsecureHttp?: boolean;
 }
 
 /** The default body limit, bytes. */
@@ -149,8 +154,14 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
     allowedHeaders = [],
     authorize,
     fetch: fetchOption,
+    allowInsecureHttp = false,
   } = options;
   if (typeof apiKey !== "string" || !apiKey) throw new DreamConfigError("createDreamProxy() needs apiKey, your Dream API key");
+  // One canonical key, the one sent and the one every answer is checked for: no surrounding spaces (which fetch would
+  // strip from the header), only the characters Dream keys are made of, and long enough never to match a field name.
+  if (apiKey.length < PROXY_KEY_MIN || !PROXY_KEY.test(apiKey)) {
+    throw new DreamConfigError(`createDreamProxy() apiKey must be at least ${PROXY_KEY_MIN} letters, digits or ._~+/=- with no spaces: copy the key again, whole`);
+  }
   const secret = apiKey;
   const auth = authorization(secret);
   if (allowedHosts !== "any" && !Array.isArray(allowedHosts)) {
@@ -158,10 +169,27 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
       "createDreamProxy() needs allowedHosts: the Host names it answers to (e.g. ['127.0.0.1:8787']), or 'any' behind a router that only sends it your own names",
     );
   }
-  const hosts = allowedHosts === "any" ? null : new Set(allowedHosts.map((host) => String(host).toLowerCase()));
+  // Each allowed host in its canonical form for either scheme: lower case, IPv6 compressed, the scheme's default port
+  // dropped, a trailing dot dropped.
+  const hosts =
+    allowedHosts === "any"
+      ? null
+      : Object.fromEntries(
+          (["http:", "https:"] as const).map((scheme) => [
+            scheme,
+            new Set(
+              allowedHosts.map((host) => {
+                const canonical = canonicalHost(String(host), scheme);
+                if (canonical === null) throw new DreamConfigError(`allowedHosts takes host[:port] names as a Host header carries them, got ${JSON.stringify(String(host))}`);
+                return canonical;
+              }),
+            ),
+          ]),
+        );
   const gateway = checkServiceUrl(gatewayUrl, "gatewayUrl", false);
   const platform = checkServiceUrl(platformUrl, "platformUrl", false);
   const data = checkServiceUrl(dataUrl, "dataUrl", false);
+  for (const [what, url] of [["gatewayUrl", gateway], ["platformUrl", platform], ["dataUrl", data]] as const) requireHttps(url, what, allowInsecureHttp);
   const version = checkClientVersion(clientVersion);
   if (!Array.isArray(allowedOrigins)) throw new DreamConfigError("allowedOrigins must be a list of origins");
   const origins = new Set(allowedOrigins.map(checkOrigin));
@@ -214,7 +242,10 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
     } catch {
       return fail(400, "bad url");
     }
-    if (hosts && !hosts.has((request.headers.get("host") ?? url.host).toLowerCase())) return fail(421, "unknown host");
+    if (hosts) {
+      const host = canonicalHost(request.headers.get("host") ?? url.host, url.protocol === "https:" ? "https:" : "http:");
+      if (host === null || !hosts[url.protocol === "https:" ? "https:" : "http:"]!.has(host)) return fail(421, "unknown host");
+    }
     if (origin !== null && !allowed) return json(403, { proxy_error: "origin not allowed" }, origins.size ? { Vary: "Origin" } : {});
     // A navigation or a no-CORS load from another site carries no Origin; Fetch Metadata names it.
     if (!allowed && request.headers.get("sec-fetch-site") === "cross-site") return json(403, { proxy_error: "cross-site request" }, origins.size ? { Vary: "Origin" } : {});
@@ -239,7 +270,7 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
     if (authorize) {
       let verdict: boolean | Response;
       try {
-        verdict = await untilAborted(Promise.resolve(authorize(new Request(request.url, { method: request.method, headers: request.headers, signal }))), signal);
+        verdict = await untilAborted(Promise.resolve(authorize(new Request(request.url, { method: request.method, headers: request.headers, signal }))), signal, discardBody);
       } catch {
         return signal.aborted ? fail(499, "cancelled") : fail(500, "authorize failed");
       }
@@ -275,7 +306,7 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
     let reply: Response;
     let payload: Uint8Array<ArrayBuffer> | null;
     try {
-      reply = await untilAborted(upstream(target.target, { method: target.method, headers, body, redirect: "manual", signal: exchange }), exchange);
+      reply = await untilAborted(upstream(target.target, { method: target.method, headers, body, redirect: "manual", signal: exchange }), exchange, discardBody);
       payload = NO_BODY.has(reply.status) || !reply.body ? null : await readAll(reply.body, maxResponseBytes, exchange, 502);
     } catch (error) {
       if (signal.aborted) return fail(499, "cancelled");
@@ -284,7 +315,10 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
       return name === "TimeoutError" || exchange.aborted ? fail(504, "timeout") : fail(502, "unreachable");
     }
     const status = reply.status >= 200 && reply.status <= 599 ? reply.status : 502;
-    if (NO_BODY.has(status)) return new Response(null, { status, headers: { ...cors, "Cache-Control": "no-store" } });
+    if (NO_BODY.has(status)) {
+      discardBody(reply);
+      return new Response(null, { status, headers: { ...cors, "Cache-Control": "no-store" } });
+    }
     // Only an answer of the route's own shape goes back, parsed and written anew, and only when no key or string in
     // it carries the key (see answerFor).
     const answer = answerFor(target.answer, status, payload, secret);
@@ -296,90 +330,213 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
 /** What each route's answer may be, besides the key check (see {@link answerFor}). */
 type AnswerShape = "gateway" | "models" | "training";
 
-const ENVELOPE_FIELDS = ["code", "name", "reason", "retryable", "retry_after_s", "detail", "trace_id"];
-const MODEL_FIELDS = ["id", "owner", "base_model", "embodiment", "servable", "created_at", "cameras", "embodiment_config", "parts_withheld"];
+/** The bounds an answer is checked within; past any of them it is withheld. */
+export const ANSWER_LIMITS = {
+  /** Nesting, arrays and objects. */
+  depth: 32,
+  /** Characters of one string value. */
+  string: 4096,
+  /** Characters of one object key. */
+  key: 256,
+  /** Values, all told. */
+  nodes: 1_000_000,
+  /** Characters decoded while looking for the key, all told. */
+  decoded: 4 * 1024 * 1024,
+} as const;
+
+/** An answer outside {@link ANSWER_LIMITS} or its route's shape. */
+class Unfit extends Error {}
+
+type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
 /**
- * The answer to pass back, re-serialised, or null to withhold it. It must be JSON of the route's shape:
+ * Walks `value` without recursion, within {@link ANSWER_LIMITS}, calling `visit` on every value with its depth and its
+ * object key, if any.
  *
- * - get_action and end_session: an object with a `status` envelope (a string `code`; `name`, `reason`, `retryable`,
- *   `retry_after_s`, `detail` and `trace_id` kept when they are strings, numbers, booleans or null), and `session_id`
- *   (a string or null), `actions` (any JSON) and `timing` (an object of numbers) when present; nothing else is kept.
- * - models: a list of model objects, each with a string `id`, keeping only the fields the client reads.
- * - training_data: an object, keeping only `cameras` and `prompts`.
- * - a refusal of the platform or the data service (status 400 or more): `{ error: { code, message } }`, strings.
+ * @throws Unfit A limit is passed.
+ */
+function walk(value: unknown, visit: (node: unknown, key: string | null) => void): void {
+  const stack: [unknown, number, string | null][] = [[value, 0, null]];
+  let nodes = 0;
+  while (stack.length) {
+    const [node, depth, key] = stack.pop()!;
+    if (++nodes > ANSWER_LIMITS.nodes || depth > ANSWER_LIMITS.depth) throw new Unfit();
+    visit(node, key);
+    if (Array.isArray(node)) for (let i = node.length - 1; i >= 0; i--) stack.push([node[i], depth + 1, null]);
+    else if (typeof node === "object" && node !== null) for (const [name, item] of Object.entries(node)) stack.push([item, depth + 1, name]);
+  }
+}
+
+const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const text = (value: unknown, limit: number = ANSWER_LIMITS.string): value is string => typeof value === "string" && value.length <= limit;
+/** A finite number that JSON writes back as itself (an infinity is written as null). */
+const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+
+/**
+ * JSON of the plain kinds: every string within its limit, every number finite, every key within its limit; arrays and
+ * objects within the depth. `strings` false refuses strings and booleans too (an action holds numbers, null, arrays and
+ * objects only).
  *
- * Then every key and string in what is kept is checked for the key ({@link carriesSecret}).
+ * @throws Unfit It is not.
+ */
+function plain(value: unknown, strings: boolean): Json {
+  walk(value, (node, key) => {
+    if (key !== null && key.length > ANSWER_LIMITS.key) throw new Unfit();
+    if (node === null || Array.isArray(node) || record(node) || finite(node)) return;
+    if (strings && (typeof node === "boolean" || text(node))) return;
+    throw new Unfit();
+  });
+  return value as Json;
+}
+
+/** An optional field of a projection: its value when `test` passes, else left out. */
+function optional(from: Record<string, unknown>, out: Record<string, unknown>, key: string, test: (value: unknown) => boolean): void {
+  if (Object.hasOwn(from, key) && test(from[key])) out[key] = from[key];
+}
+
+/**
+ * The answer to pass back, re-serialised, or null to withhold it. It must parse as UTF-8 JSON and fit its route:
+ *
+ * - get_action and end_session: an object with a `status` envelope whose `code` is a string; of the envelope, `name`,
+ *   `reason`, `detail` and `trace_id` are kept when strings or null, `retryable` when a boolean or null and
+ *   `retry_after_s` when a finite number or null; `session_id` when a string or null; `actions` must be an object of
+ *   numbers, null, arrays and objects only (no strings: these become joint targets), every number finite; of `timing`,
+ *   `gateway_ms` and `serve_infer_ms` are kept when finite numbers, and the rest dropped. Nothing else is kept.
+ * - models: a list of model objects, each a string `id`, and `owner`, `base_model`, `embodiment`, `created_at` (strings
+ *   or null), `servable`, `parts_withheld` (booleans), `cameras` (strings, or null) and `embodiment_config` (plain JSON
+ *   or null) when present; another type for one of them withholds the answer.
+ * - training_data: `cameras` (per role, the sizes that are two finite numbers) and `prompts` (the strings).
+ * - a refusal of the platform or the data service (status 400 or more): `{ error: { code, message } }` with the
+ *   strings it has, its status kept; one of another shape is answered `{ error: { code: "upstream_error", message } }`
+ *   with the same status, so the client still tells an authentication refusal from the rest.
+ *
+ * Every string, key, depth and count is within {@link ANSWER_LIMITS}. Then every key and string kept is checked for
+ * the key ({@link carriesSecret}).
  */
 export function answerFor(shape: AnswerShape, status: number, payload: Uint8Array | null, secret: string): string | null {
   let decoded: unknown;
   try {
     decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payload ?? new Uint8Array(0)));
   } catch {
+    decoded = undefined;
+  }
+  let kept: Json;
+  try {
+    kept = project(shape, status, decoded);
+    return carriesSecret(kept, secret) ? null : JSON.stringify(kept);
+  } catch {
     return null;
   }
-  const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-  const scalar = (value: unknown) => value === null || ["string", "number", "boolean"].includes(typeof value);
-  const pick = (from: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter((key) => Object.hasOwn(from, key)).map((key) => [key, from[key]]));
-  let kept: unknown = null;
-  if (shape === "gateway") {
-    if (!record(decoded) || !record(decoded.status) || typeof decoded.status.code !== "string") return null;
-    const envelope = pick(decoded.status, ENVELOPE_FIELDS);
-    if (!Object.values(envelope).every(scalar)) return null;
-    const out: Record<string, unknown> = { status: envelope };
-    if (Object.hasOwn(decoded, "session_id")) {
-      if (decoded.session_id !== null && typeof decoded.session_id !== "string") return null;
-      out.session_id = decoded.session_id;
-    }
-    if (Object.hasOwn(decoded, "actions")) out.actions = decoded.actions;
-    if (Object.hasOwn(decoded, "timing")) {
-      if (!record(decoded.timing) || !Object.values(decoded.timing).every((v) => v === null || typeof v === "number")) return null;
-      out.timing = decoded.timing;
-    }
-    kept = out;
-  } else if (status >= 400) {
-    if (!record(decoded) || !record(decoded.error)) return null;
-    const error = pick(decoded.error, ["code", "message"]);
-    if (!Object.values(error).every((v) => typeof v === "string")) return null;
-    kept = { error };
-  } else if (shape === "models") {
-    if (!Array.isArray(decoded) || !decoded.every((m) => record(m) && typeof m.id === "string")) return null;
-    kept = decoded.map((m) => pick(m as Record<string, unknown>, MODEL_FIELDS));
-  } else {
-    if (!record(decoded)) return null;
-    kept = pick(decoded, ["cameras", "prompts"]);
+}
+
+/** @throws Unfit The answer does not fit its route. */
+function project(shape: AnswerShape, status: number, decoded: unknown): Json {
+  if (shape !== "gateway" && status >= 400) {
+    const error = record(decoded) && record(decoded.error) ? decoded.error : {};
+    const out: Record<string, string> = {};
+    if (text(error.code, ANSWER_LIMITS.key)) out.code = error.code;
+    if (text(error.message)) out.message = error.message;
+    return { error: Object.keys(out).length ? out : { code: "upstream_error", message: `the Dream service answered ${status}` } };
   }
-  return carriesSecret(kept, secret) ? null : JSON.stringify(kept);
+  if (decoded === undefined) throw new Unfit();
+  if (shape === "gateway") {
+    if (!record(decoded) || !record(decoded.status) || !text(decoded.status.code, ANSWER_LIMITS.key)) throw new Unfit();
+    const from = decoded.status;
+    const envelope: Record<string, unknown> = { code: from.code };
+    for (const key of ["name", "reason", "detail", "trace_id"]) optional(from, envelope, key, (v) => v === null || text(v));
+    optional(from, envelope, "retryable", (v) => v === null || typeof v === "boolean");
+    optional(from, envelope, "retry_after_s", (v) => v === null || finite(v));
+    const out: Record<string, unknown> = { status: envelope };
+    optional(decoded, out, "session_id", (v) => v === null || text(v, ANSWER_LIMITS.key));
+    if (Object.hasOwn(decoded, "actions")) {
+      if (!record(decoded.actions)) throw new Unfit();
+      out.actions = plain(decoded.actions, false);
+    }
+    if (record(decoded.timing)) {
+      const timing: Record<string, unknown> = {};
+      optional(decoded.timing, timing, "gateway_ms", finite);
+      optional(decoded.timing, timing, "serve_infer_ms", finite);
+      out.timing = timing;
+    }
+    return out as Json;
+  }
+  if (shape === "models") {
+    if (!Array.isArray(decoded) || decoded.length > 10_000) throw new Unfit();
+    const nullableText = (v: unknown) => v === null || text(v);
+    const fields: Record<string, (v: unknown) => boolean> = {
+      owner: nullableText,
+      base_model: nullableText,
+      embodiment: nullableText,
+      created_at: nullableText,
+      servable: (v) => typeof v === "boolean",
+      parts_withheld: (v) => typeof v === "boolean",
+      cameras: (v) => v === null || (Array.isArray(v) && v.every((c) => text(c, ANSWER_LIMITS.key))),
+      embodiment_config: (v) => v === null || record(v),
+    };
+    return decoded.map((model) => {
+      if (!record(model) || !text(model.id, ANSWER_LIMITS.key)) throw new Unfit();
+      const out: Record<string, unknown> = { id: model.id };
+      for (const [key, test] of Object.entries(fields)) {
+        if (!Object.hasOwn(model, key)) continue;
+        if (!test(model[key])) throw new Unfit();
+        out[key] = key === "embodiment_config" && model[key] !== null ? plain(model[key], true) : model[key];
+      }
+      return out as Json;
+    });
+  }
+  if (!record(decoded)) throw new Unfit();
+  const out: Record<string, Json> = {};
+  if (Object.hasOwn(decoded, "cameras")) {
+    if (!record(decoded.cameras)) throw new Unfit();
+    const cameras: Record<string, Json> = Object.create(null);
+    for (const [role, sizes] of Object.entries(decoded.cameras)) {
+      if (role.length > ANSWER_LIMITS.key || !Array.isArray(sizes)) throw new Unfit();
+      cameras[role] = sizes.filter((size): size is number[] => Array.isArray(size) && size.length === 2 && size.every(finite));
+    }
+    out.cameras = cameras;
+  }
+  if (Object.hasOwn(decoded, "prompts")) {
+    if (!Array.isArray(decoded.prompts)) throw new Unfit();
+    out.prompts = decoded.prompts.filter((prompt): prompt is string => text(prompt));
+  }
+  return out;
 }
 
 /**
- * Whether `value` carries `secret` (and so `Bearer <secret>`) in any object key or string, as written or decoded: from
- * `\uXXXX` escapes (JSON text inside a string), from percent-encoding, and from every run of base64, base64url or hex
- * characters, each decoded at every alignment, to two levels. Numbers carry nothing. Any other encoding (a key split
- * across strings, reversed, encrypted) is not detected.
+ * Whether `value` carries `secret` (and so `Bearer <secret>`), by exact match of that key, in any object key or string,
+ * as written or decoded: from `\uXXXX` escapes (JSON text inside a string), from percent-encoding, and from every run of
+ * base64, base64url or hex characters, each decoded at every alignment, to two levels. Numbers carry nothing. Any
+ * other encoding (a key split across strings, reversed, encrypted) is not detected. The work is bounded: past
+ * {@link ANSWER_LIMITS} (`decoded` characters all told) it answers true, and the answer is withheld.
  */
 export function carriesSecret(value: unknown, secret: string): boolean {
-  const seen = (text: string, depth: number): boolean => {
-    if (text.includes(secret)) return true;
-    if (depth >= 2) return false;
-    for (const decoded of decodings(text)) if (decoded !== text && seen(decoded, depth + 1)) return true;
+  let budget = ANSWER_LIMITS.decoded;
+  const seen = (found: string, depth: number): boolean => {
+    budget -= found.length;
+    if (budget < 0) throw new Unfit();
+    if (found.includes(secret)) return true;
+    if (depth >= 2 || found.length < secret.length) return false;
+    for (const decoded of decodings(found)) if (decoded !== found && seen(decoded, depth + 1)) return true;
     return false;
   };
-  const walk = (node: unknown): boolean => {
-    if (typeof node === "string") return seen(node, 0);
-    if (Array.isArray(node)) return node.some(walk);
-    if (typeof node === "object" && node !== null) return Object.entries(node).some(([key, item]) => seen(key, 0) || walk(item));
-    return false;
-  };
-  return walk(value);
+  let carries = false;
+  try {
+    walk(value, (node, key) => {
+      if (carries) return;
+      if ((key !== null && seen(key, 0)) || (typeof node === "string" && seen(node, 0))) carries = true;
+    });
+  } catch {
+    return true;
+  }
+  return carries;
 }
 
 /** The texts a string may hide another in: unescaped, percent-decoded, and its base64/base64url/hex runs decoded. */
-function decodings(text: string): string[] {
+function decodings(found: string): string[] {
   const out: string[] = [];
-  out.push(text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))));
-  out.push(text.replace(/%([0-9a-fA-F]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))));
-  for (const [run] of text.matchAll(/[A-Za-z0-9+/_-]{8,}={0,2}/g)) {
+  if (found.includes("\\u")) out.push(found.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))));
+  if (found.includes("%")) out.push(found.replace(/%([0-9a-fA-F]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))));
+  for (const [run] of found.matchAll(/[A-Za-z0-9+/_-]{16,}={0,2}/g)) {
     const standard = run.replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
     for (let skip = 0; skip < 4 && skip < standard.length; skip++) {
       let part = standard.slice(skip);
@@ -391,22 +548,71 @@ function decodings(text: string): string[] {
       }
     }
   }
-  for (const [run] of text.matchAll(/[0-9a-fA-F]{8,}/g)) {
+  for (const [run] of found.matchAll(/[0-9a-fA-F]{32,}/g)) {
     for (const skip of [0, 1]) {
-      const pairs = run.slice(skip).match(/../g) ?? [];
-      out.push(pairs.map((pair) => String.fromCharCode(parseInt(pair, 16))).join(""));
+      let decoded = "";
+      for (let i = skip; i + 1 < run.length; i += 2) decoded += String.fromCharCode(parseInt(run.slice(i, i + 2), 16));
+      out.push(decoded);
     }
   }
   return out;
 }
 
-/** `promise`, or the signal's reason as soon as `signal` fires; one listener, removed when either settles. */
-function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(signal.reason);
+/** The canonical `host[:port]` of a Host header for `scheme`, or null when it is not one; see `allowedHosts`. */
+export function canonicalHost(host: string, scheme: "http:" | "https:"): string | null {
+  if (!host || /[\s/?#@\\]/.test(host)) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(`${scheme}//${host}`);
+  } catch {
+    return null;
+  }
+  if (parsed.pathname !== "/" || parsed.username || parsed.password) return null;
+  // A trailing dot names the same DNS host: dropped, so `example.com.` and `example.com` match.
+  return parsed.host.replace(/\.(?=(:\d+)?$)/, "");
+}
+
+/** A Response's body cancelled without waiting: an answer no one will read. */
+function discardBody(value: unknown): void {
+  if (value instanceof Response && value.body && !value.bodyUsed) void value.body.cancel().catch(() => undefined);
+}
+
+/**
+ * `promise`, or the signal's reason as soon as `signal` fires; one listener, removed when either settles. A value that
+ * arrives after the signal won is handed to `late` (a body to cancel).
+ */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal, late: (value: T) => void = () => undefined): Promise<T> {
+  let settled = false;
+  promise.then(
+    (value) => settled && late(value),
+    () => undefined,
+  );
+  if (signal.aborted) {
+    settled = true;
+    return Promise.reject(signal.reason);
+  }
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(signal.reason);
+    const onAbort = () => {
+      settled = true;
+      reject(signal.reason);
+    };
     signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+    promise
+      .then(
+        (value) => {
+          if (!settled) {
+            settled = true;
+            resolve(value);
+          }
+        },
+        (error) => {
+          if (!settled) {
+            settled = true;
+            reject(error);
+          }
+        },
+      )
+      .finally(() => signal.removeEventListener("abort", onAbort));
   });
 }
 

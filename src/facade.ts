@@ -33,7 +33,7 @@ import {
   type Robot,
   type Timing,
 } from "./client.js";
-import { checkServiceUrl, DEFAULT_DATA_URL, DEFAULT_GATEWAY_URL, DEFAULT_PLATFORM_URL } from "./credentials.js";
+import { authorization, checkServiceUrl, safeMessage, DEFAULT_DATA_URL, DEFAULT_GATEWAY_URL, DEFAULT_PLATFORM_URL, requireHttps } from "./credentials.js";
 import { parseEmbodiment, type EmbodimentConfig, type ShapeSpec } from "./embodiment.js";
 import { DreamCallbackWarning, DreamCancelled, DreamConfigError, DreamError, DreamProtocolError, DreamTrainingWarning, detail, type DreamWarning } from "./errors.js";
 import { listModels, scrub, type CheckpointId, type Model, type ServiceOptions } from "./models.js";
@@ -87,12 +87,18 @@ export interface DreamClientOptions {
   /**
    * `baseUrl` is your proxy, which builds the gateway's `User-Agent` (`dream-client/<version> <instance>`) from what
    * the client sends: `Dream-Client-Version`, and `Dream-Client-Instance`, 8 random hex digits per policy. Turn it on
-   * behind a proxy that forwards both, as the MakerMods console's do; a browser cannot set `User-Agent` itself. On by
-   * default with `proxyUrl`.
+   * behind a proxy that forwards both, as the MakerMods console's do; a browser cannot set `User-Agent` itself. Always
+   * on with `proxyUrl`; set it when you point `baseUrl`, `platformUrl` or `dataUrl` at a createDreamProxy() one by one,
+   * which refuses a GET without `Dream-Client-Version`.
    */
   proxyHeaders?: boolean;
   /** The clock, milliseconds on a monotonic scale; `performance.now` by default (tests replace it). */
   now?: () => number;
+  /**
+   * Let `apiKey` go to a plain `http://` service on another computer, on a network you trust. Off by default: with a
+   * key, every absolute service URL must be `https://` or this computer's (`localhost`, 127.0.0.0/8, `[::1]`).
+   */
+  allowInsecureHttp?: boolean;
 }
 
 /** The config of {@link DreamClient.policy}; Python's snake_case keys in camelCase. */
@@ -209,10 +215,18 @@ export class DreamClient {
     this.#apiKey = apiKey ?? null;
     const proxy = options.proxyUrl !== undefined ? checkServiceUrl(options.proxyUrl, "proxyUrl", true) : null;
     if (proxy !== null && this.#apiKey) throw new DreamConfigError("proxyUrl is your proxy, which adds the API key: leave apiKey out", detail("unsupported", "apiKey"));
+    // A proxy requires the client's marker (Dream-Client-Version) on every request: with proxyUrl it is always sent.
+    if (proxy !== null && options.proxyHeaders === false) {
+      throw new DreamConfigError("proxyUrl sends the proxy headers the proxy requires: leave proxyHeaders out (or true)", detail("unsupported", "proxyHeaders"));
+    }
+    if (this.#apiKey) authorization(this.#apiKey);
     this.baseUrl = checkServiceUrl(options.baseUrl ?? proxy ?? DEFAULT_GATEWAY_URL, "baseUrl", true);
     this.platformUrl = checkServiceUrl(options.platformUrl ?? proxy ?? DEFAULT_PLATFORM_URL, "platformUrl", true);
     this.dataUrl = checkServiceUrl(options.dataUrl ?? proxy ?? DEFAULT_DATA_URL, "dataUrl", true);
-    this.#proxyHeaders = options.proxyHeaders ?? proxy !== null;
+    if (this.#apiKey) {
+      for (const [what, url] of [["baseUrl", this.baseUrl], ["platformUrl", this.platformUrl], ["dataUrl", this.dataUrl]] as const) requireHttps(url, what, options.allowInsecureHttp);
+    }
+    this.#proxyHeaders = proxy !== null || (options.proxyHeaders ?? false);
     if (options.clientVersion !== undefined) checkClientVersion(options.clientVersion);
   }
 
@@ -335,6 +349,7 @@ export class DreamClient {
         headers: this.#options.headers,
         clientVersion: this.#options.clientVersion,
         proxyHeaders: this.#proxyHeaders,
+        allowInsecureHttp: this.#options.allowInsecureHttp,
         onWarning: this.#options.onWarning,
         onDiagnostics: this.#options.onDiagnostics,
         now: this.#options.now,
@@ -585,9 +600,14 @@ export class DreamClient {
       // Synchronous by contract; a promise it returns is not waited for, and its rejection is a warning, never an
       // unhandled rejection.
       if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
-        (result as PromiseLike<unknown>).then(undefined, (error: unknown) =>
-          this.warn(new DreamCallbackWarning(scrub(`an onRoundTrip() callback's promise was rejected: ${error instanceof Error ? error.message : String(error)}`, this.#apiKey))),
-        );
+        // The reporter never throws itself: any rejection value is formatted safely, and the chain ends here.
+        Promise.resolve(result).then(undefined, (error: unknown) => {
+          try {
+            this.warn(new DreamCallbackWarning(scrub(`an onRoundTrip() callback's promise was rejected: ${safeMessage(error)}`, this.#apiKey)));
+          } catch {
+            // nothing left to report to
+          }
+        });
       }
     }
   }

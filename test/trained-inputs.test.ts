@@ -65,3 +65,26 @@ describe("trained inputs, as dream.trained_inputs", () => {
     expect(trainingDataPath("dream-1-ft:0a1b2c3d-towels")).toBe("/v1/fine_tuning/models/dream-1-ft%3A0a1b2c3d-towels/training_data");
   });
 });
+
+describe("float() as dream.arm_file reads URDF numbers", () => {
+  it("matches Python on Unicode digits and whitespace, underscores and specials", async () => {
+    const { pyFloat } = await import("../src/pyfloat.js");
+    for (const entry of trained.floats) {
+      const got = pyFloat(entry.text);
+      const label = JSON.stringify(entry.text);
+      if (entry.error) expect(got, label).toBeNaN();
+      else if (entry.value === null) expect(got, label).toBeNaN();
+      else if (entry.value === "inf" || entry.value === "-inf") expect(got, label).toBe(entry.value === "inf" ? Infinity : -Infinity);
+      else expect(got, label).toBe(entry.value);
+    }
+  });
+
+  it("reads in linear time, a long invalid attribute included", async () => {
+    const { pyFloat } = await import("../src/pyfloat.js");
+    const started = performance.now();
+    for (const text of ["1_".repeat(200_000) + "x", "1".repeat(400_000) + "e", "1".repeat(200_000) + ".1e+_"]) expect(pyFloat(text)).toBeNaN();
+    // As in Python, a valid spelling too large for a double is an infinity (then refused as not finite).
+    expect(pyFloat("\u0661".repeat(200_000) + ".")).toBe(Infinity);
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+});

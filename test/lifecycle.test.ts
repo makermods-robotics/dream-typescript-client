@@ -57,7 +57,7 @@ function stub(options: { models?: unknown[]; hold?: Promise<void> | null; honour
   return { fetch, seen };
 }
 
-const urls = { baseUrl: "http://gateway.test", platformUrl: "http://platform.test" };
+const urls = { baseUrl: "https://gateway.test", platformUrl: "https://platform.test" };
 
 describe("the lifecycle", () => {
   it("a policy() whose model lookup is pending when close() runs opens nothing", async () => {
@@ -275,7 +275,8 @@ describe("the lifecycle", () => {
     const policy = new PolicyClient({ checkpoint: "c", ...urls, fetch: failing });
     const error = await policy.getAction(observation).catch((e) => e);
     expect(error).toBeInstanceOf(DreamProtocolError);
-    expect(error.cause).toBeInstanceOf(TypeError);
+    // A new error standing for it (never the original object, which may carry the request): its name, message, cause.
+    expect(error.cause).toMatchObject({ name: "TypeError", message: "connect ECONNREFUSED", cause: { message: "socket hang up" } });
     const leaking = async () => {
       throw new TypeError("bad header value Bearer dk_secret_1");
     };

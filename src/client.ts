@@ -5,7 +5,7 @@
  * model answered. {@link DreamClient} (`facade.ts`) is the public front over it, adding the frame window.
  */
 
-import { checkServiceUrl, KEY_PER_SITE } from "./credentials.js";
+import { checkServiceUrl, KEY_PER_SITE, requireHttps } from "./credentials.js";
 import { check, checkPerKey, compileChecks, isEmbodimentConfig, isObject, type Checks, type ShapeEntry } from "./embodiment.js";
 import {
   detail,
@@ -255,6 +255,8 @@ export interface PolicyClientOptions {
   onDiagnostics?: (diagnostics: Diagnostics) => void;
   /** The clock, milliseconds on a monotonic scale; `performance.now` by default. */
   now?: () => number;
+  /** Let `apiKey` go to a plain `http://` gateway on another computer (see DreamClientOptions.allowInsecureHttp). */
+  allowInsecureHttp?: boolean;
 }
 
 /** Per chunk key, the joints the loop last commanded that arm: the arm's joints, or its whole written row. */
@@ -310,6 +312,7 @@ export class PolicyClient {
         throw new DreamConfigError(`baseUrl ${JSON.stringify(options.baseUrl)} is relative, which only a page or a worker can resolve; give an absolute URL`);
       }
     }
+    if (options.apiKey) requireHttps(this.baseUrl, "baseUrl", options.allowInsecureHttp);
     this.timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
     checkTimeout(this.timeoutMs);
     if (options.robot !== undefined && !ROBOTS.includes(options.robot)) {

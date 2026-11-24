@@ -10,7 +10,7 @@ const OK = { status: { code: "DA-0001", reason: "new" }, session_id: "ses_1", ac
 
 function client(replies: unknown[]) {
   const fetch = async (url: string): Promise<Response> => Response.json(url.endsWith("/v1/end_session") ? { status: { code: "DA-0000" } } : replies.shift());
-  return new DreamClient({ apiKey: "dk_test", baseUrl: "http://gateway.test", fetch, onWarning: () => {} });
+  return new DreamClient({ apiKey: "dk_test", baseUrl: "https://gateway.test", fetch, onWarning: () => {} });
 }
 
 describe("onRoundTrip", () => {

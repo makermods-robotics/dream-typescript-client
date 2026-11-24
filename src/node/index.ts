@@ -15,6 +15,7 @@ import type { TLSSocket } from "node:tls";
 import { DreamClient, type DreamClientOptions } from "../facade.js";
 import { DEFAULT_FILE, FILE_ENV, resolveCredentials, type Credentials } from "../credentials.js";
 import { DreamConfigError } from "../errors.js";
+import { PROXY_MAX_OPTION, readAll } from "../proxy.js";
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -86,6 +87,7 @@ export function nodeHandler(
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
   return async (request, response) => {
     const answer = (status: number, error: string) => {
+      if (response.destroyed) return;
       if (response.headersSent) return void response.destroy();
       response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       response.end(JSON.stringify({ proxy_error: error }));
@@ -97,8 +99,10 @@ export function nodeHandler(
     let abandoned = false;
     // The URL comes from the request's own Host, never a made-up one: a request without one (HTTP/1.0), with a
     // malformed one, or with an absolute-form target is refused before the handler sees it.
-    const host = request.headers.host;
-    if (typeof host !== "string" || !HOST.test(host)) return answer(400, "missing or malformed Host");
+    // Exactly one Host field: Node's `headers.host` keeps the first of two and hides the other.
+    const hostFields = request.headersDistinct?.host ?? rawHostFields(request.rawHeaders);
+    const host = hostFields.length === 1 ? hostFields[0]! : undefined;
+    if (typeof host !== "string" || !HOST.test(host)) return answer(400, "missing, duplicate or malformed Host");
     if (!request.url?.startsWith("/")) return answer(400, "request target must be a path");
     try {
       const protocol = options.protocol ?? ((request.socket as TLSSocket).encrypted ? "https" : "http");
@@ -142,7 +146,16 @@ export function nodeHandler(
     }
     try {
       const reply = await handler(fetchRequest);
-      const bytes = reply.body ? Buffer.from(await reply.arrayBuffer()) : null;
+      // Read under the disconnect: a client gone while the answer's body is still open cancels it, never waits on it.
+      let bytes: Buffer | null = null;
+      if (reply.body) {
+        try {
+          bytes = Buffer.from(await readAll(reply.body, PROXY_MAX_OPTION, disconnected.signal, 500));
+        } catch (error) {
+          if (disconnected.signal.aborted) return;
+          throw error;
+        }
+      }
       const headers = Object.fromEntries(reply.headers);
       const unread = abandoned || !request.complete;
       if (response.destroyed) return;
@@ -156,6 +169,13 @@ export function nodeHandler(
       answer(500, "internal");
     }
   };
+}
+
+/** The values of every Host field in `raw` (name, value, name, value, ...). */
+function rawHostFields(raw: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i + 1 < raw.length; i += 2) if (raw[i]!.toLowerCase() === "host") out.push(raw[i + 1]!);
+  return out;
 }
 
 /** A Host header: a DNS name or IPv4 address, or a bracketed IPv6 literal, and an optional port. */

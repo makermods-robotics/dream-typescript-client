@@ -1,5 +1,5 @@
-"""Writes src/unicode.data.ts: Python's `str.casefold()` for every code point it changes, and the code points
-`str.isprintable()` refuses (npm run unicode).
+"""Writes src/unicode.data.ts: Python's `str.casefold()` for every code point it changes, the code points
+`str.isprintable()` refuses, and the decimal digits and whitespace `float()` reads (npm run unicode).
 
 Run with the reference Python (the tables are its own Unicode database, `unicodedata.unidata_version`): the warning
 lines `dream.trained_inputs` prints use `casefold()` to compare prompts and `repr()` (which escapes what is not
@@ -43,6 +43,9 @@ def main() -> None:
             unprintable[-1][1] = cp
         else:
             unprintable.append([cp, cp])
+    # float() reads every decimal digit as its ASCII one (unicodedata.decimal) and strips str.isspace() characters.
+    digit_zeros = [cp for cp in range(0x110000) if unicodedata.decimal(chr(cp), None) == 0]
+    spaces = [cp for cp in range(0x110000) if chr(cp).isspace()]
     flat = ",".join(str(v) for run in runs for v in run)
     pairs = ",".join(f"[{cp},{json.dumps(text, ensure_ascii=True)}]" for cp, text in multi.items())
     OUT.write_text(
@@ -54,6 +57,10 @@ def main() -> None:
         f"export const FOLD_MULTI: ReadonlyArray<readonly [number, string]> = [{pairs}];\n"
         f"/** Inclusive ranges of the code points str.isprintable() refuses: first, last. */\n"
         f"export const UNPRINTABLE: readonly number[] = [{','.join(str(v) for r in unprintable for v in r)}];\n"
+        f"/** The code points whose decimal value (unicodedata.decimal) is 0: each starts a run of the digits 0 to 9. */\n"
+        f"export const DIGIT_ZEROS: readonly number[] = [{','.join(map(str, digit_zeros))}];\n"
+        f"/** The code points str.isspace() takes. */\n"
+        f"export const SPACES: readonly number[] = [{','.join(map(str, spaces))}];\n"
     )
     print(f"wrote {OUT}: {len(single)} single folds in {len(runs)} runs, {len(multi)} multiple, {len(unprintable)} unprintable ranges", file=sys.stderr)
 

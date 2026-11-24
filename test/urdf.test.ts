@@ -93,6 +93,13 @@ describe("defineArm refuses a malformed URDF", () => {
     expect(defineArm(file, edit('lower="0" upper="3.14"', 'lower=" +0." upper="3.14"')).sideArm("right").data.limits[2]).toEqual([0, 3.14]);
   });
 
+  it("reads Unicode digits and whitespace as Python's float(), and refuses a leading U+FEFF and a blank velocity", () => {
+    expect(defineArm(file, edit('lower="0" upper="3.14"', 'lower="\u0085 0 " upper="\uff13.\uff11\uff14"')).sideArm("right").data.limits[2]).toEqual([0, 3.14]);
+    refuses(edit('lower="0" upper="3.14"', 'lower="\ufeff0" upper="3.14"'), /not finite numbers/);
+    refuses(edit('lower="0" upper="3.14" velocity="5"', 'lower="0" upper="3.14" velocity=" "'), /has velocity " ", not a finite number/);
+    expect(defineArm(file, edit('lower="0" upper="3.14" velocity="5"', 'lower="0" upper="3.14" velocity=""'))).toBeDefined();
+  });
+
   it("keeps rest inside the URDF limits, as Python", () => {
     refuses(metalUrdf, /rest puts joint3 at 3.2, outside \[0, 3.14\]/, { rest: [0, -1.2, 3.2, 0, 0, 0] });
     // At a limit, inside the URDF range but not the margined one, as dream.arm_file allows.

@@ -26,7 +26,7 @@ describe("the fixture manifest", () => {
         expect(versions, `${name} upstream`).toEqual(upstream);
       }
     }
-    expect(files).toBeGreaterThanOrEqual(9);
+    expect(files).toBeGreaterThanOrEqual(10);
   });
 
   it("keeps a check only with the environment that wrote its fixture", () => {
@@ -42,7 +42,10 @@ describe("the fixture manifest", () => {
     expect(checks).toBeGreaterThan(0);
   });
 
-  it("has limit_stop.json's converged answer replayed against the tracked versions", () => {
+  it("has limit_stop.json's converged answer replayed against the tracked versions, and recorded by name", () => {
+    const entry = manifest.replay_limit_stop?.files?.["test/fixtures/limit_stop.json"];
+    expect(entry, "limit_stop.json's manifest entry").toBeDefined();
+    expect(sha256("test/fixtures/limit_stop.json")).toBe(entry.sha256);
     const limit = fixture("limit_stop.json");
     expect({ dreamlabs: limit.versions.dreamlabs, "dreamlabs-client": limit.versions["dreamlabs-client"] }).toEqual(upstream);
     expect(limit.recorded_versions).toMatchObject({ dreamlabs: "1.0.17", "dreamlabs-client": "1.0.8" });

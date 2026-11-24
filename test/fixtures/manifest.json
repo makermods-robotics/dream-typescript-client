@@ -373,7 +373,7 @@
           20261023,
           834780529
         ],
-        "sha256": "182dd07fef3bc21ad063148eabd033fbae002cd312f0d13510df78bd866bbba8",
+        "sha256": "0cd5b324192f53f7886d084e525b2fd3f6f1b06918bdeb5c982b0261d67c5f57",
         "urdfs": {}
       },
       "test/fixtures/window.json": {
@@ -457,6 +457,44 @@
           "so101_faas_left.urdf": "1aebfd59fafcd0adb4df74ad1a0ee156a06ac7f1bed0fdca76912458266ced00",
           "so101_faas_right.urdf": "bdf70bd7988780833c507ec4e1543005845662c54dae5fee56dd6e0845eb8aae"
         }
+      }
+    }
+  },
+  "replay_limit_stop": {
+    "files": {
+      "test/fixtures/limit_stop.json": {
+        "environment": {
+          "jaxls_sort_patch": false,
+          "settings": {
+            "JAX_PLATFORMS": "cpu",
+            "OMP_NUM_THREADS": null,
+            "OPENBLAS_NUM_THREADS": null,
+            "XLA_FLAGS": "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+          },
+          "upstream": {
+            "dreamlabs": {
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
+            },
+            "dreamlabs-client": {
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
+            }
+          },
+          "versions": {
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
+            "jax": "0.7.1",
+            "jaxlib": "0.7.1",
+            "jaxls": "vendored in dreamlabs 1.0.42",
+            "numpy": "2.2.6",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
+            "scipy": "1.18.1",
+            "yourdfpy": "0.0.60"
+          }
+        },
+        "sha256": "a725cb7e8d3b3981e2cf4966e6806e8e027ce8ebad6f61a17be1664f1a05986c"
       }
     }
   }

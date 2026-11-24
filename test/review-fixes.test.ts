@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { DreamCallbackWarning, DreamClient, DreamConfigError, DreamTrainingWarning, type RoundTrip } from "../src/index.js";
+import { DreamCallbackWarning, DreamClient, DreamConfigError, DreamTrainingWarning, PolicyClient, type RoundTrip } from "../src/index.js";
 import { callService, checkServiceUrl } from "../src/internal.js";
 import { createClient } from "../src/node/index.js";
 
@@ -208,7 +208,7 @@ describe("hold fixes, client side", () => {
       }
       return "";
     })();
-    expect(leaked).toContain("<userinfo>@gateway.test");
+    expect(leaked).toContain("baseUrl must be");
     expect(leaked).not.toContain("hunter2");
     expect(checkServiceUrl("https://[::1]:8443/api/", "baseUrl", true)).toBe("https://[::1]:8443/api");
     const root = new DreamClient({ proxyUrl: "/" });
@@ -229,6 +229,63 @@ describe("hold fixes, client side", () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toBeInstanceOf(DreamCallbackWarning);
     expect((warnings[0] as Error).message).toBe("an onRoundTrip() callback's promise was rejected: view lost <api key>");
+    await client.close();
+  });
+});
+
+describe("third review, client side", () => {
+  it("never keeps a failed request's configuration as an error's cause", async () => {
+    const { inspect } = await import("node:util");
+    const failing = Object.assign(new TypeError(`fetch failed for ${KEY}`), {
+      code: "ECONNREFUSED",
+      config: { headers: { Authorization: `Bearer ${KEY}` } },
+      cause: Object.assign(new Error("connect refused"), { request: { headers: { authorization: `Bearer ${KEY}` } }, errno: -111 }),
+    });
+    const client = new PolicyClient({ checkpoint: "c", baseUrl: "https://gateway.test", apiKey: KEY, fetch: () => Promise.reject(failing) });
+    const error = await client.getAction({ prompt: "x" }).catch((e: unknown) => e);
+    const shown = inspect(error, { depth: 20, showHidden: true });
+    expect(shown).not.toContain(KEY);
+    expect(shown).not.toContain("config");
+    const cause = (error as Error).cause as Error & { code?: string };
+    expect(cause.code).toBe("ECONNREFUSED");
+    expect(cause.message).toBe("fetch failed for <api key>");
+    expect(((cause.cause as Error & { errno?: number }).errno)).toBe(-111);
+    const odd = new PolicyClient({ checkpoint: "c", baseUrl: "https://gateway.test", apiKey: KEY, fetch: () => Promise.reject(Object.create(null)) });
+    await expect(odd.getAction({ prompt: "x" })).rejects.toThrow(/could not reach Dream Labs/);
+  });
+
+  it("refuses dot segments in any spelling, takes DNS and IDN hosts, and never prints the authority", () => {
+    for (const url of ["https://proxy.test/application/%2e%2e/route", "https://proxy.test/a/.%2E/b", "https://proxy.test/%2E/b", "/api/%2e%2e/x"]) {
+      expect(() => checkServiceUrl(url, "baseUrl", true), url).toThrow(/dot segment/);
+    }
+    expect(checkServiceUrl("https://proxy.example./api", "baseUrl", true)).toBe("https://proxy.example./api");
+    expect(checkServiceUrl("https://bücher.example", "baseUrl", true)).toBe("https://xn--bcher-kva.example");
+    for (const url of ["//me:hunter2@proxy.test/api", "https://me:p@ss@proxy.test/", "https://me:hunter2@proxy.test"]) {
+      let message = "";
+      try {
+        checkServiceUrl(url, "baseUrl", true);
+      } catch (error) {
+        message = String(error);
+      }
+      expect(message, url).toMatch(/baseUrl must be/);
+      expect(message, url).not.toMatch(/hunter2|p@ss|ss@|me:/);
+    }
+  });
+
+  it("reports a callback rejecting with an unprintable value without throwing", async () => {
+    const warnings: Error[] = [];
+    const replies = () => Response.json({ status: { code: "DA-0001", reason: "new" }, session_id: "s", actions: {} });
+    const client = new DreamClient({ apiKey: KEY, baseUrl: "https://gateway.test", fetch: recording(replies).fetch, onWarning: (w) => void warnings.push(w) });
+    client.onRoundTrip(() => Promise.reject(Object.create(null)));
+    client.onRoundTrip(() => Promise.reject({ toString: () => { throw new Error("no"); } }));
+    await client.policy({ checkpoint: "dreamlabs/dream-1-beta", strict: false });
+    client.setObservation({ "video.top": "Zg==" }, {}, { timestamp: 1 });
+    await client.getAction();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(warnings.map((w) => w.message)).toEqual([
+      "an onRoundTrip() callback's promise was rejected: (a value that cannot be shown)",
+      "an onRoundTrip() callback's promise was rejected: (a value that cannot be shown)",
+    ]);
     await client.close();
   });
 });

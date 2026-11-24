@@ -5,7 +5,8 @@ stopped early, on float rounding, so it moves from run to run and is kept as rec
 convergence in float64 (`converged`, what this package is held to). This script solves the recorded inputs again with
 the installed dream_ik, in float64 with jaxls's stop tightened in memory (as the recording did), checks the answer
 against `converged`, and writes the fixture back with `converged` replaced, `versions` naming the installed packages
-and `replayed` saying how far the new answer moved. Nothing reaches the network or hardware.
+and `replayed` saying how far the new answer moved, and records it in test/fixtures/manifest.json (its sha256 and
+environment). Nothing reaches the network or hardware.
 
     $DREAM_PYTHON -I scripts/replay_limit_stop.py
 """
@@ -73,6 +74,12 @@ def main() -> None:
     fixture["replayed"] = {"converged_moved_rad": moved, "bound_rad": REPLAY_BOUND_RAD, "dream": "as recorded with recorded_versions: dream_ik's own early stop turns on float rounding"}
     PATH.write_text(json.dumps(fixture))
     print(f"wrote {PATH}", file=sys.stderr)
+    # Its manifest entry, as the generators record theirs: the bytes and the environment that wrote them.
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    import manifest
+
+    name = str(PATH.relative_to(manifest.ROOT).as_posix())
+    manifest.update("replay_limit_stop", {name: {"sha256": manifest.sha256(PATH), "environment": manifest.environment()}})
 
 
 if __name__ == "__main__":

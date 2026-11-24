@@ -7,7 +7,7 @@
  * to the next one.
  */
 
-import { authorization, scrubJson } from "./credentials.js";
+import { authorization, safeCause, safeMessage, scrub, scrubJson } from "./credentials.js";
 import { DreamCancelled, DreamConfigError, DreamError, DreamProtocolError, DreamTimeout, detail } from "./errors.js";
 import { CLIENT_VERSION } from "./version.js";
 
@@ -188,9 +188,8 @@ export class Transport {
       raw = await reply.text();
     } catch (error) {
       if (ended) throw this.aborted(ended, error);
-      let why = error instanceof Error ? (error.cause instanceof Error ? error.cause.message : error.message) : String(error);
       // A fetch that refuses a header names its value: never let the key into a message.
-      if (this.#secret) why = why.split(this.#secret).join("<api key>");
+      const why = scrub(safeMessage(error instanceof Error && error.cause instanceof Error ? error.cause : error), this.#secret);
       throw new DreamProtocolError(`could not reach Dream Labs at ${this.baseUrl}: ${why}; check this computer's internet connection, or the baseUrl`, { cause: this.scrubbed(error) });
     } finally {
       clearTimeout(timer);
@@ -224,12 +223,13 @@ export class Transport {
     return ended;
   }
 
-  /** `error` as a cause, or a copy of its message without the key when the key is in it. */
-  private scrubbed(error: unknown): unknown {
-    const secret = this.#secret;
-    if (!secret) return error;
-    const text = (e: unknown): string => (e instanceof Error ? `${e.message} ${text(e.cause)}` : String(e ?? ""));
-    return text(error).includes(secret) ? new Error(text(error).split(secret).join("<api key>")) : error;
+  /**
+   * A new error standing for `error` as a cause: only its name, its message and its `code`, `errno` and `syscall`
+   * (strings or numbers), the key cut out, and so for its own causes, three deep. Never the original object, which may
+   * carry the request (its headers, the key among them).
+   */
+  private scrubbed(error: unknown): Error {
+    return safeCause(error, this.#secret);
   }
 }
 

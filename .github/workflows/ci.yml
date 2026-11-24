@@ -1,8 +1,10 @@
 name: ci
 
+# Once per commit: a pull request's commits through pull_request, and main through push.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
 
 jobs:
   test:

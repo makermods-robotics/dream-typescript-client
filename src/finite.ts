@@ -35,15 +35,19 @@ export function isNumbers(value: unknown, finite = false): value is ArrayLike<nu
 
 /**
  * Where the first non-finite number in a value is: its dotted key and its row (first index under the key). A hole in
- * an array (no element at all) is found too, with `hole` set.
+ * an array (no element at all) is found too, with `hole` set, and a null inside an array, with `nulled` set. A null
+ * value of an object key (`per_key`'s `action.right_arm: null`) is not a number's place and passes.
  */
-export function firstNonFinite(value: unknown, key = "", row: number | null = null): { key: string; row: number | null; hole?: true } | null {
+export function firstNonFinite(value: unknown, key = "", row: number | null = null): { key: string; row: number | null; hole?: true; nulled?: true } | null {
   if (typeof value === "number") return Number.isFinite(value) ? null : { key, row };
   if (Array.isArray(value) || (ArrayBuffer.isView(value) && !(value instanceof DataView))) {
     const items = value as ArrayLike<unknown>;
     const sparse = Array.isArray(items);
     for (let i = 0; i < items.length; i++) {
       if (sparse && !(i in items)) return { key, row: row ?? i, hole: true };
+      // Inside an array a null stands where a number belongs (a joint target): a proxy that re-serialised an
+      // infinity writes it as null.
+      if (items[i] === null) return { key, row: row ?? i, nulled: true };
       const found = firstNonFinite(items[i], key, row ?? i);
       if (found) return found;
     }
@@ -59,13 +63,16 @@ export function firstNonFinite(value: unknown, key = "", row: number | null = nu
 }
 
 /**
- * @throws DreamActionError `action` holds a NaN, an infinity or a hole anywhere; the message and `detail` name the key
- *   and row.
+ * @throws DreamActionError `action` holds a NaN, an infinity, a hole, or a null inside an array, anywhere; the message
+ *   and `detail` name the key and row.
  */
 export function checkFiniteAction(action: unknown, what = "the model's reply"): void {
   const found = firstNonFinite(action);
   if (found === null) return;
   const where = `${found.key ? `key '${found.key}'` : "the action"}${found.row === null ? "" : ` row ${found.row}`}`;
+  if (found.nulled) {
+    throw new DreamActionError(`${what} holds null where a number belongs at ${where}, so nothing is returned`, detail("non_finite", found.key || null, found.row));
+  }
   if (found.hole) {
     throw new DreamActionError(`${what} has a hole (a missing element of a sparse array) at ${where}, so nothing is returned`, detail("shape", found.key || null, found.row));
   }

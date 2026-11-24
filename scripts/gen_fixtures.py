@@ -646,12 +646,23 @@ def gen_trained(rng: np.random.Generator) -> None:
     proto = {"cameras": {"__proto__": [[640, 360]]}, "prompts": []}
     proto_frames = {"video.__proto__": [jpeg_frame(3, 640, 480)]}
     notes.append({"trained": proto, "frames": proto_frames, "prompt": None, "notes": trained_inputs.notes(proto, "dream-1-ft:0a1b2c3d-x", proto_frames, None)})
+    # float() as dream.arm_file reads a URDF's numbers: Unicode digits and whitespace, underscores, specials.
+    alphabet = list("0123456789._eE+-infaINF ") + ["\u0085", "\uff11", "\u0663", "\ufeff", "\u2003", "\x1c", "\u00b2", "\u2160"]
+    spellings = ["\uff11\uff12.\uff15", "\u0085 1.5 \u0085", "\ufeff1", "\u0663.\u0661\u0664", "1 2", " ", "", "\u0661_\u0662", "1e5_0", ".5_0", "1_000.000_1", "Infinity", "-inF", "+nan", "1\u00b2", "\u2160", "1e", "e1", "-.e1", "\x1c2\x1f"]
+    spellings += ["".join(rng.choice(alphabet, int(rng.integers(1, 9)))) for _ in range(400)]
+    floats = []
+    for spelling in spellings:
+        try:
+            value = float(spelling)
+            floats.append({"text": spelling, "value": None if value != value else (str(value) if value in (float("inf"), float("-inf")) else value)})
+        except ValueError:
+            floats.append({"text": spelling, "error": True})
     bad = {"cameras": {"front": [None, [640, "x"], [0, 480], [640, 360, 1]], "wrist_l": "640x480", "wrist_r": [[640, 360]]}, "prompts": ["wave", None, 3]}
     try:
         bad_notes = trained_inputs.notes(bad, "dream-1-ft:0a1b2c3d-x", {"video.front": [jpeg_frame(1, 640, 480)], "video.wrist_r": [jpeg_frame(2, 640, 480)]}, "wave")
     except Exception as error:  # Python fails on it; the port leaves the bad sizes out
         bad_notes = f"{type(error).__name__}"
-    write("trained.json", {"ratios": ratios, "closest": closest, "plain": plain, "folds": folds, "sizes": sizes, "decodes": decodes, "notes": notes, "malformed": {"trained": bad, "python": bad_notes}, "reprs": reprs, "formats": formats, "quotes": quotes})
+    write("trained.json", {"ratios": ratios, "closest": closest, "plain": plain, "folds": folds, "sizes": sizes, "decodes": decodes, "notes": notes, "malformed": {"trained": bad, "python": bad_notes}, "floats": floats, "reprs": reprs, "formats": formats, "quotes": quotes})
 
 
 def frame_variant(rng: np.random.Generator, good: str) -> str:

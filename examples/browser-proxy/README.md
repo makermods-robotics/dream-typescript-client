@@ -11,7 +11,8 @@ node examples/browser-proxy/server.ts   # Node 23.6+; reads ~/.dreamlabs/credent
 open http://127.0.0.1:8787/
 ```
 
-The page uses the webcam as the scene camera, asks Dream-1 Beta for SO-101 chunks with client-side IK, and prints
+Nothing runs until you press Start (the page is never framed: `frame-ancestors 'none'`). Then the page uses the
+webcam as the scene camera, asks Dream-1 Beta for SO-101 chunks with client-side IK, and prints
 the rows instead of driving motors.
 
 The proxy forwards `get_action` and `end_session` to the gateway, the models list to the platform, and a fine-tune's

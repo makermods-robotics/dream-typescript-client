@@ -9,7 +9,7 @@
  */
 
 import { DreamConfigError } from "../errors.js";
-import { pyFloat } from "../pyfloat.js";
+import { pyFloat, pySplit } from "../pyfloat.js";
 import { pyList } from "../window.js";
 import { every, isNumbers } from "../finite.js";
 import { cross3, dot3, norm3, scale3, sub3, type Vec3 } from "../linalg.js";
@@ -363,7 +363,8 @@ function linkOf(joint: XmlElement, end: "parent" | "child"): string {
 function vector(joint: XmlElement, tag: "origin" | "axis", key: "xyz" | "rpy", fallback: number[]): number[] {
   const text = child(joint, tag)?.attributes[key];
   if (text === undefined) return fallback;
-  const values = text.trim().split(/\s+/).map(number);
+  // Split as Python's str.split() does: U+0085 separates, U+FEFF does not.
+  const values = pySplit(text).map(number);
   if (values.length !== 3 || !values.every(Number.isFinite)) throw new DreamConfigError(`arm file: joint '${joint.attributes.name}' has ${tag} ${key} ${JSON.stringify(text)}, not 3 finite numbers`);
   return values;
 }

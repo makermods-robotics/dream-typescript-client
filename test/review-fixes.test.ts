@@ -289,3 +289,81 @@ describe("third review, client side", () => {
     await client.close();
   });
 });
+
+describe("fourth review, client side", () => {
+  const raw = (reply: string, embodiment?: unknown) =>
+    new PolicyClient({ checkpoint: "c", baseUrl: "https://gateway.test", processing: "raw", embodiment, fetch: async () => new Response(reply) });
+
+  it("returns no object, null or string where a joint value belongs, even raw and with a declared shape", async () => {
+    const spec = { action: { q_r_chunk: { shape: [1, 1] } } };
+    for (const [actions, kind] of [['{"q_r_chunk":[[{"x":0}]]}', "shape"], ['{"q_r_chunk":[[null]]}', "non_finite"], ['{"per_key":{"action.right_arm":[["0.1"]]}}', "shape"]] as const) {
+      const error = await raw(`{"status":{"code":"DA-0000"},"session_id":"s","actions":${actions}}`, actions.startsWith('{"q_r') ? spec : undefined)
+        .getAction({ prompt: "x" })
+        .catch((e: { name: string; detail?: { kind: string } }) => e);
+      expect(error, actions).toMatchObject({ name: "DreamActionError" });
+      if (!actions.startsWith('{"q_r_chunk":[[{')) expect((error as { detail: { kind: string } }).detail.kind, actions).toBe(kind);
+    }
+    // Extensions pass through, nulls and strings included; a null head stays allowed.
+    const fine = '{"status":{"code":"DA-0000"},"session_id":"s","actions":{"q_r_chunk":[[0.5]],"extra":[null],"head_label":"right","per_key":{"action.right_arm":null}}}';
+    expect(await raw(fine, spec).getAction({ prompt: "x" })).toEqual({ q_r_chunk: [[0.5]], extra: [null], head_label: "right", per_key: { "action.right_arm": null } });
+  });
+
+  it("adopts a long session id exactly and releases it", async () => {
+    const id = "s".repeat(1000);
+    const seen: string[] = [];
+    const client = new PolicyClient({
+      checkpoint: "c",
+      baseUrl: "https://gateway.test",
+      processing: "raw",
+      fetch: async (url, init) => {
+        seen.push(`${url.split("/v1/")[1]} ${JSON.parse(String(init.body)).session_id}`);
+        return new Response(JSON.stringify({ status: { code: "DA-0001", reason: "new" }, session_id: id, actions: {} }));
+      },
+    });
+    await client.getAction({ prompt: "x" });
+    expect(client.sessionId).toBe(id);
+    await client.close();
+    expect(seen).toEqual(["get_action null", `end_session ${id}`]);
+  });
+
+  it("checks https where the key is attached: relative URLs against the page, the internal transport and calls, literal true only", async () => {
+    const scope = globalThis as { location?: unknown };
+    scope.location = { href: "http://remote.example/app/" };
+    try {
+      expect(() => new DreamClient({ apiKey: KEY, platformUrl: "/api" })).toThrow(/plain http/);
+      expect(() => new DreamClient({ proxyUrl: "/api/dream" })).not.toThrow();
+    } finally {
+      delete scope.location;
+    }
+    scope.location = { href: "https://app.example/" };
+    try {
+      expect(() => new DreamClient({ apiKey: KEY, platformUrl: "/api" })).not.toThrow();
+    } finally {
+      delete scope.location;
+    }
+    const { Transport } = await import("../src/internal.js");
+    expect(() => new Transport({ baseUrl: "http://gateway.example", timeoutMs: 1000, apiKey: KEY })).toThrow(/plain http/);
+    expect(() => new Transport({ baseUrl: "http://gateway.example", timeoutMs: 1000, apiKey: null })).not.toThrow();
+    await expect(callService("GET", "/v1/models", { url: "http://platform.example", apiKey: KEY, fetch: async () => Response.json([]) })).rejects.toThrow(/plain http/);
+    expect(() => new DreamClient({ apiKey: KEY, baseUrl: "http://gateway.example", allowInsecureHttp: "false" as never })).toThrow(/plain http/);
+    expect(() => new DreamClient({ apiKey: KEY, baseUrl: "http://gateway.example", allowInsecureHttp: true })).not.toThrow();
+    // This computer, by every loopback spelling.
+    for (const url of ["http://127.0.0.1:9", "http://[::1]:9", "http://[::ffff:127.0.0.1]:9", "http://robot.localhost:9"]) {
+      expect(() => new DreamClient({ apiKey: KEY, baseUrl: url }), url).not.toThrow();
+    }
+  });
+
+  it("survives an error whose cause getter throws", async () => {
+    const hostile = new TypeError(`fetch failed ${KEY}`);
+    Object.defineProperty(hostile, "cause", {
+      get() {
+        throw new Error("getter exploded");
+      },
+    });
+    const client = new PolicyClient({ checkpoint: "c", baseUrl: "https://gateway.test", apiKey: KEY, fetch: () => Promise.reject(hostile) });
+    const error = await client.getAction({ prompt: "x" }).catch((e: Error) => e);
+    expect(error.name).toBe("DreamProtocolError");
+    expect(error.message).toContain("fetch failed <api key>");
+    expect((error.cause as Error).message).toBe("fetch failed <api key>");
+  });
+});

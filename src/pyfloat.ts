@@ -27,10 +27,15 @@ function decimal(cp: number): number {
   return -1;
 }
 
-/** `float(text)` in Python, or NaN for text it refuses (and for `nan` itself). */
-export function pyFloat(text: string): number {
+/**
+ * `float(text)` in Python, or NaN for text it refuses (and for `nan` itself).
+ *
+ * @param work Counts the characters stepped over, for tests: at most a few per character of `text`.
+ */
+export function pyFloat(text: string, work?: { steps: number }): number {
   let ascii = "";
   for (const c of text) {
+    if (work) work.steps++;
     const cp = c.codePointAt(0)!;
     if (cp < 0x80) ascii += c;
     else if (SPACE_SET.has(cp)) ascii += " ";
@@ -45,6 +50,7 @@ export function pyFloat(text: string): number {
   const space = (c: string | undefined) => c === " " || c === "\t" || c === "\n" || c === "\r" || c === "\v" || c === "\f";
   while (start < end && space(ascii[start])) start++;
   while (end > start && space(ascii[end - 1])) end--;
+  if (work) work.steps += ascii.length - (end - start);
   const body = ascii.slice(start, end);
   let i = 0;
   let sign = 1;
@@ -57,6 +63,7 @@ export function pyFloat(text: string): number {
   const digits = (): number => {
     let count = 0;
     while (isDigit(body[i])) {
+      if (work) work.steps++;
       i++;
       count++;
       if (body[i] === "_" && isDigit(body[i + 1])) i++;
@@ -77,4 +84,18 @@ export function pyFloat(text: string): number {
   }
   if (i !== body.length) return NaN;
   return Number(body.replace(/_/g, ""));
+}
+
+/** Python's `str.split()` with no separator: the runs of non-`str.isspace()` characters, in order. */
+export function pySplit(text: string): string[] {
+  const out: string[] = [];
+  let word = "";
+  for (const c of text) {
+    if (SPACE_SET.has(c.codePointAt(0)!)) {
+      if (word) out.push(word);
+      word = "";
+    } else word += c;
+  }
+  if (word) out.push(word);
+  return out;
 }

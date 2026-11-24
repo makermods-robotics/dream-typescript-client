@@ -6,9 +6,12 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
+import { fixture } from "./helpers.js";
+
+const wire = fixture("wire.json");
 import { CLIENT_VERSION, DreamClient, DreamConfigError, PolicyClient } from "../src/index.js";
 import { nodeHandler } from "../src/node/index.js";
-import { createDreamProxy, readAll, type DreamProxyOptions } from "../src/proxy.js";
+import { ANSWER_LIMITS, answerFor, createDreamProxy, readAll, type DreamProxyOptions, type ScanWork } from "../src/proxy.js";
 
 const KEY = "dk_secret_proxy_key";
 const PAGE = "https://app.example.com";
@@ -694,12 +697,30 @@ describe("createDreamProxy, third review", () => {
     expect((await action(through(deep).handler)).status).toBe(502);
     const veryDeep = `{"status":{"code":"DA-0000"},"actions":{"a":${"[".repeat(200_000)}${"]".repeat(200_000)}}}`;
     expect((await action(through(veryDeep).handler)).status).toBe(502);
-    const long = `{"status":{"code":"DA-0000","detail":"${"x".repeat(5000)}"}}`;
-    expect(await (await action(through(long).handler)).json()).toEqual({ status: { code: "DA-0000" } });
-    const hex = `{"status":{"code":"DA-0000","detail":"${"0123456789abcdef".repeat(250)}"}}`;
-    const started = performance.now();
-    for (let i = 0; i < 20; i++) expect((await action(through(hex).handler)).status).toBe(200);
-    expect((performance.now() - started) / 20).toBeLessThan(25);
+    // An envelope text field past ANSWER_LIMITS.string is left out; one within it is kept whole.
+    const kept = "x".repeat(ANSWER_LIMITS.string);
+    expect(await (await action(through(`{"status":{"code":"DA-2000","detail":"${kept}"}}`).handler)).json()).toEqual({ status: { code: "DA-2000", detail: kept } });
+    expect(await (await action(through(`{"status":{"code":"DA-2000","detail":"${kept}x"}}`).handler)).json()).toEqual({ status: { code: "DA-2000" } });
+    // The key scan's work is bounded by the text it reads: a hex diagnostic is decoded once per alignment, two deep.
+    const hex = "0123456789abcdef".repeat(250);
+    const work: ScanWork = { nodes: 0, decoded: 0 };
+    expect(answerFor("gateway", 200, new TextEncoder().encode(`{"status":{"code":"DA-0000","detail":"${hex}"}}`), SECRET, work)).not.toBeNull();
+    expect(work.decoded).toBeLessThanOrEqual(8 * hex.length);
+  });
+
+  it("counts values before it schedules them: a wide array stops at the limit, a real answer is cheap", () => {
+    const wide = `{"status":{"code":"DA-0000"},"actions":{"extra":[${"0,".repeat(1_500_000)}0]}}`;
+    const work: ScanWork = { nodes: 0, decoded: 0 };
+    expect(answerFor("gateway", 200, new TextEncoder().encode(wide), SECRET, work)).toBeNull();
+    expect(work.nodes).toBeLessThanOrEqual(ANSWER_LIMITS.nodes);
+    // Eight heads of 48 rows of 7 values: every value visited once by the shape check and once by the key scan.
+    const rows = Array.from({ length: 48 }, (_, r) => Array.from({ length: 7 }, (_, c) => Math.sin(r * 7 + c)));
+    const per_key = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`action.part_${i}`, rows]));
+    const answer = { status: { code: "DA-0000" }, session_id: "s", actions: { q_r_chunk: rows, q_l_chunk: rows, per_key } };
+    const real: ScanWork = { nodes: 0, decoded: 0 };
+    const written = answerFor("gateway", 200, new TextEncoder().encode(JSON.stringify(answer)), SECRET, real);
+    expect(JSON.parse(written!)).toEqual(answer);
+    expect(real.nodes).toBeLessThan(2 * 8 * 48 * 8 + 100);
   });
 
   it("matches a Host by its canonical form: one field, default ports, IPv6 spellings, a trailing dot", async () => {
@@ -783,18 +804,136 @@ describe("nodeHandler, third review", () => {
 
   it("stops reading an open answer body when the client disconnects, and writes nothing after", async () => {
     let cancelled = false;
-    const handler = async () => new Response(new ReadableStream<Uint8Array>({ start: (c) => c.enqueue(new Uint8Array(1)), cancel: () => void (cancelled = true) }), { status: 401 });
+    let onPull!: () => void;
+    let onCancel!: () => void;
+    const pulled = new Promise<void>((resolve) => (onPull = resolve));
+    const cancelledNow = new Promise<void>((resolve) => (onCancel = resolve));
+    const handler = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull: () => onPull(),
+          cancel: () => {
+            cancelled = true;
+            onCancel();
+          },
+        }),
+        { status: 401 },
+      );
     const errors: unknown[] = [];
     const listener = nodeHandler(handler);
     server = createServer((request, response) => void listener(request, response).catch((e) => errors.push(e)));
     await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
     const client = new AbortController();
     const call = fetch(`http://127.0.0.1:${(server!.address() as AddressInfo).port}/v1/models`, { signal: client.signal }).catch((e: Error) => e);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Abort only once the adapter is reading the answer's body (its first pull), then wait for the cancel itself.
+    await pulled;
     client.abort();
     await call;
-    for (let i = 0; i < 100 && !cancelled; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    await cancelledNow;
     expect(cancelled).toBe(true);
     expect(errors).toEqual([]);
+  });
+});
+
+
+describe("createDreamProxy, fourth review", () => {
+  const SECRET = "dk_SYNTHETIC_secret_7f3a9c";
+  const bytes = (text: string) => new TextEncoder().encode(text);
+  const gateway = (body: unknown, status = 200) => answerFor("gateway", status, bytes(typeof body === "string" ? body : JSON.stringify(body)), SECRET);
+
+  it("passes only finite numbers in actuator heads: no object, null or string where a joint value belongs", () => {
+    for (const actions of ['{"q_r_chunk":[[{"x":0}]]}', '{"q_r_chunk":[[0,null]]}', '{"q_l_chunk":[["0.1"]]}', '{"per_key":{"action.right_arm":[[true]]}}', '{"per_key":{"action.right_arm":[{"0":1}]}}', '{"per_key":"x"}', '{"q_r_chunk":{"0":[1]}}']) {
+      expect(gateway(`{"status":{"code":"DA-0000"},"actions":${actions}}`), actions).toBeNull();
+    }
+    // A whole head that is null stays allowed, as the protocol sends a joint head the serve does not answer.
+    const nulled = { status: { code: "DA-0000" }, actions: { q_r_chunk: null, per_key: { "action.right_arm": null, "action.right_grip": [[0.5]] } } };
+    expect(JSON.parse(gateway(nulled)!)).toEqual(nulled);
+  });
+
+  it("passes extensions through as plain JSON, strings and nulls included, as Python does", () => {
+    const answer = { status: { code: "DA-0000" }, actions: { q_r_chunk: [[0.1, 0.2]], head_label: "right", extra: [null], note: { a: [1, "b"] } } };
+    expect(JSON.parse(gateway(answer)!)).toEqual(answer);
+  });
+
+  it("keeps a session id exactly, up to ANSWER_LIMITS.key characters, and withholds the answer past that", () => {
+    const id = "s".repeat(257);
+    expect(JSON.parse(gateway({ status: { code: "DA-0001", reason: "new" }, session_id: id, actions: {} })!).session_id).toBe(id);
+    expect(JSON.parse(gateway({ status: { code: "DA-0001", reason: "new" }, session_id: "s".repeat(ANSWER_LIMITS.key), actions: {} })!).session_id).toHaveLength(ANSWER_LIMITS.key);
+    expect(gateway({ status: { code: "DA-0001", reason: "new" }, session_id: "s".repeat(ANSWER_LIMITS.key + 1), actions: { q_r_chunk: [[1]] } })).toBeNull();
+  });
+
+  it("never delivers a number it changed: inexact integers and infinities are withheld, -0 and doubles kept", () => {
+    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"q_r_chunk":[[9007199254740993]]}}')).toBeNull();
+    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"extra":[1e400]}}')).toBeNull();
+    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"q_r_chunk":[[9007199254740992, 1e21, 123456789012]]}}')).not.toBeNull();
+    const zero = gateway('{"status":{"code":"DA-0000"},"actions":{"q_r_chunk":[[-0, 0.5]]}}')!;
+    expect(zero).toContain("[[-0,0.5]]");
+    expect(Object.is(JSON.parse(zero).actions.q_r_chunk[0][0], -0)).toBe(true);
+    // Ordinary joint values round-trip bit for bit.
+    let seed = 1;
+    const rows = Array.from({ length: 48 }, () => Array.from({ length: 7 }, () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 6.283185307179586));
+    const back = JSON.parse(gateway({ status: { code: "DA-0000" }, actions: { q_r_chunk: rows } })!).actions.q_r_chunk;
+    expect(back).toEqual(rows);
+  });
+
+  it("withholds a key of digits echoed as a number", async () => {
+    const digits = "1234567890123456";
+    expect(answerFor("gateway", 200, bytes(`{"status":{"code":"DA-0000"},"actions":{"extra":${digits}}}`), digits)).toBeNull();
+    expect(answerFor("gateway", 200, bytes(`{"status":{"code":"DA-0000"},"actions":{"extra":1}}`), digits)).not.toBeNull();
+  });
+
+  it("keeps a refusal's meaning: a gateway refusal's actions are ignored, a platform refusal that must be withheld keeps its status", async () => {
+    expect(JSON.parse(gateway({ status: { code: "DA-2000", reason: "pool_full", retryable: true, retry_after_s: 2 }, actions: null })!)).toEqual({
+      status: { code: "DA-2000", reason: "pool_full", retryable: true, retry_after_s: 2 },
+    });
+    expect(JSON.parse(gateway('{"status":{"code":"DA-4000"},"actions":"whatever"}')!)).toEqual({ status: { code: "DA-4000" } });
+    let calls = 0;
+    const handler = createDreamProxy({
+      apiKey: SECRET,
+      allowedHosts: "any",
+      fetch: async () => (calls++, Response.json({ error: { code: "invalid_api_key", message: `bad key ${SECRET}` } }, { status: 401 })),
+    });
+    const reply = await handler(get("http://proxy.test/v1/models"));
+    expect(reply.status).toBe(401);
+    expect(await reply.json()).toEqual({ error: { code: "upstream_error", message: "the Dream service answered 401" } });
+    const client = new DreamClient({ proxyUrl: "http://proxy.test", fetch: (input, init) => handler(new Request(input, init)) });
+    await expect(client.getModels()).rejects.toMatchObject({ name: "DreamAuthError" });
+    expect(calls).toBe(2);
+  });
+
+  it("keeps training prompts as given within ANSWER_LIMITS.string, and withholds rather than changes them", () => {
+    const answer = (prompts: unknown) => answerFor("training", 200, bytes(JSON.stringify({ cameras: { front: [[640, 360]] }, prompts })), SECRET);
+    const long = "p".repeat(4097);
+    expect(JSON.parse(answer([long, "wave"])!)).toEqual({ cameras: { front: [[640, 360]] }, prompts: [long, "wave"] });
+    expect(answer(["p".repeat(ANSWER_LIMITS.string + 1)])).toBeNull();
+    expect(answer(["wave", 3])).toBeNull();
+  });
+
+  it("replays every reply of the recorded wire: the well-formed ones come back with the same content", () => {
+    let replies = 0;
+    let wellFormed = 0;
+    for (const scenario of wire.scenarios) {
+      for (const step of scenario.steps) {
+        for (const request of step.requests) {
+          replies++;
+          const shape = request.path === "/v1/models" ? "models" : request.path.includes("/training_data") ? "training" : "gateway";
+          const written = answerFor(shape, request.reply.status, bytes(request.reply.body), SECRET);
+          let parsed: unknown = undefined;
+          try {
+            parsed = JSON.parse(request.reply.body);
+          } catch {
+            // not JSON
+          }
+          const fits = shape !== "gateway" || (typeof parsed === "object" && parsed !== null && typeof (parsed as { status?: { code?: unknown } }).status?.code === "string");
+          if (!fits) {
+            expect(written, request.reply.body).toBeNull();
+            continue;
+          }
+          wellFormed++;
+          expect(JSON.parse(written!), request.reply.body.slice(0, 80)).toEqual(parsed);
+        }
+      }
+    }
+    expect([replies, wellFormed]).toEqual([44, 42]);
   });
 });

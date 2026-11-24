@@ -62,22 +62,59 @@ export function firstNonFinite(value: unknown, key = "", row: number | null = nu
   return null;
 }
 
+/** The actuator heads every action dict may carry: each arm's chunk. `per_key`'s parts are actuator heads too. */
+export const ACTUATOR_HEADS = ["q_r_chunk", "q_l_chunk"] as const;
+
 /**
- * @throws DreamActionError `action` holds a NaN, an infinity, a hole, or a null inside an array, anywhere; the message
- *   and `detail` name the key and row.
+ * Where a head's value first holds something other than a finite number in arrays: a NaN or an infinity, a null, a
+ * hole, or anything else (an object, a string, a boolean) where a joint value belongs. The head as a whole may be null.
  */
-export function checkFiniteAction(action: unknown, what = "the model's reply"): void {
-  const found = firstNonFinite(action);
-  if (found === null) return;
-  const where = `${found.key ? `key '${found.key}'` : "the action"}${found.row === null ? "" : ` row ${found.row}`}`;
-  if (found.nulled) {
-    throw new DreamActionError(`${what} holds null where a number belongs at ${where}, so nothing is returned`, detail("non_finite", found.key || null, found.row));
+function firstBadLeaf(value: unknown, key: string): { key: string; row: number | null; kind: "non_finite" | "null" | "hole" | "shape" } | null {
+  if (value === null || value === undefined) return null;
+  const visit = (node: unknown, row: number | null): { key: string; row: number | null; kind: "non_finite" | "null" | "hole" | "shape" } | null => {
+    if (typeof node === "number") return Number.isFinite(node) ? null : { key, row, kind: "non_finite" };
+    if (Array.isArray(node) || (ArrayBuffer.isView(node) && !(node instanceof DataView))) {
+      const items = node as ArrayLike<unknown>;
+      const sparse = Array.isArray(items);
+      for (let i = 0; i < items.length; i++) {
+        if (sparse && !(i in items)) return { key, row: row ?? i, kind: "hole" };
+        if (items[i] === null) return { key, row: row ?? i, kind: "null" };
+        const found = visit(items[i], row ?? i);
+        if (found) return found;
+      }
+      return null;
+    }
+    return { key, row, kind: "shape" };
+  };
+  return visit(value, null);
+}
+
+/**
+ * Checks every actuator head of a reply: `q_r_chunk`, `q_l_chunk`, every part of `per_key`, and the heads the
+ * configured embodiment declares (`declared`). Each is null as a whole, or arrays whose every leaf is a finite number:
+ * a joint target is never NaN, an infinity (JSON's `1e400`), null, a hole, or an object. Any other key is an extension,
+ * passed through untouched, as in Python.
+ *
+ * @throws DreamActionError A head holds something else; the message and `detail` name the key and row.
+ */
+export function checkFiniteAction(action: unknown, declared: readonly string[] = [], what = "the model's reply"): void {
+  if (typeof action !== "object" || action === null) return;
+  const dict = action as Record<string, unknown>;
+  const heads: [string, unknown][] = [...new Set([...ACTUATOR_HEADS, ...declared])].filter((key) => key in dict).map((key) => [key, dict[key]]);
+  const perKey = dict.per_key;
+  if (typeof perKey === "object" && perKey !== null && !Array.isArray(perKey)) {
+    for (const [part, value] of Object.entries(perKey)) heads.push([`per_key.${part}`, value]);
   }
-  if (found.hole) {
-    throw new DreamActionError(`${what} has a hole (a missing element of a sparse array) at ${where}, so nothing is returned`, detail("shape", found.key || null, found.row));
+  for (const [key, value] of heads) {
+    const found = firstBadLeaf(value, key);
+    if (found === null) continue;
+    const where = `key '${found.key}'${found.row === null ? "" : ` row ${found.row}`}`;
+    if (found.kind === "null") throw new DreamActionError(`${what} holds null where a number belongs at ${where}, so nothing is returned`, detail("non_finite", found.key, found.row));
+    if (found.kind === "hole") throw new DreamActionError(`${what} has a hole (a missing element of a sparse array) at ${where}, so nothing is returned`, detail("shape", found.key, found.row));
+    if (found.kind === "shape") throw new DreamActionError(`${what} holds something other than a number where a joint value belongs at ${where}, so nothing is returned`, detail("shape", found.key, found.row));
+    throw new DreamActionError(
+      `${what} holds a non-finite number at ${where} (NaN or an infinity; JSON's 1e400 reads as Infinity), so nothing is returned`,
+      detail("non_finite", found.key, found.row),
+    );
   }
-  throw new DreamActionError(
-    `${what} holds a non-finite number at ${where} (NaN or an infinity; JSON's 1e400 reads as Infinity), so nothing is returned`,
-    detail("non_finite", found.key || null, found.row),
-  );
 }

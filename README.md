@@ -105,9 +105,9 @@ export default {
 
 `proxyUrl` is the default of `baseUrl`, `platformUrl` and `dataUrl`, and always turns `proxyHeaders` on (`proxyHeaders:
 false` with it is refused): the proxy refuses a GET without `Dream-Client-Version`. If you point `baseUrl`,
-`platformUrl` or `dataUrl` at a proxy one by one instead, set `proxyHeaders: true`. With an `apiKey`, every absolute
-service URL must be `https://` or this computer's (`allowInsecureHttp: true` for a network you trust). A browser cannot set `User-Agent`, so with
-`proxyHeaders` the client sends `Dream-Client-Version` and `Dream-Client-Instance` (8 random hex digits per
+`platformUrl` or `dataUrl` at a proxy one by one instead, set `proxyHeaders: true`. With an `apiKey`, every service URL,
+a relative one resolved against the page, must be `https://` or this computer's (see Plain http below). A browser
+cannot set `User-Agent`, so with `proxyHeaders` the client sends `Dream-Client-Version` and `Dream-Client-Instance` (8 random hex digits per
 policy), and the proxy builds `User-Agent: dream-client/<version> <instance>` upstream, as the Python client sends it.
 [`examples/browser-proxy/`](examples/browser-proxy/) has a Node server and a page.
 
@@ -158,24 +158,38 @@ or 304 has no body), and the answer carries only `Content-Type`, `Cache-Control:
 answer is parsed and written anew, never passed through**, and only in the shape its route produces:
 
 - get_action and end_session: the `status` envelope (`code` a string; `name`, `reason`, `detail`, `trace_id` strings
-  or null; `retryable` a boolean or null; `retry_after_s` a number or null; a field of another type is left out),
-  `session_id`, `actions` (an object of numbers, null, arrays and objects only: no strings, since these become joint
-  targets) and of `timing` only `gateway_ms` and `serve_infer_ms`, when numbers (null, absent or unfamiliar timing is
-  dropped, the answer kept).
-- The models list: each model's fields the client reads, each of its type. Training data: `cameras` and `prompts`.
+  or null, a text field longer than 64 KiB left out; `retryable` a boolean or null; `retry_after_s` a number or null;
+  a field of another type is left out), `session_id` exactly as sent (one longer than 4096 characters withholds the
+  answer), and of `timing` only `gateway_ms` and `serve_infer_ms`, when numbers (null, absent or unfamiliar timing is
+  dropped, the answer kept). With an OK code (`DA-0000`, `DA-0001`), `actions`: its actuator heads (`q_r_chunk`,
+  `q_l_chunk`, every part of `per_key`) null as a whole or arrays of finite numbers only (no null, string or object
+  where a joint value belongs), and its other keys, extensions, passed as plain JSON, as Python passes them. A
+  refusal's `actions` are left out.
+- The models list: each model's fields the client reads, each of its type. Training data: `cameras` and `prompts` as
+  given; a prompt that is not a string, or longer than 64 KiB, withholds the answer rather than changing the list.
 - A refusal of the platform or the data service keeps its status (401 stays 401, so the client reports a key refusal
-  and does not retry it), with `{ error: { code, message } }`, or a generic one when its own body does not fit.
+  and does not retry it), with `{ error: { code, message } }`, or a generic one when its own body does not fit or
+  carries the key.
 
-**Every number must be finite**: an answer holding `1e400` (an infinity once parsed, which re-serialising would write as
-`null`) is withheld, and so is one that is not JSON or not of its shape (502, `upstream answer withheld`). So is one in
-which any object key or string carries the key, by exact match of the configured key (and so `Bearer <key>`), as
+**The proxy never delivers a number it changed**: an answer holding `1e400` (an infinity once parsed, which
+re-serialising would write as `null`) or an integer a double cannot hold exactly (`9007199254740993`) is withheld;
+`-0` is written `-0`. So is an answer that is not JSON or not of its shape (502, `upstream answer withheld`), and one
+in which any object key or string carries the key, by exact match of the configured key (and so `Bearer <key>`), as
 written or decoded from `\uXXXX` escapes, percent-encoding, or any run of base64, base64url or hex, at every alignment,
-two levels deep. That is the guarantee: the key does not leave in those forms; a key split across strings or otherwise
-transformed is not detected. The check is bounded (`ANSWER_LIMITS`: 32 levels of nesting, strings of 4096 characters,
-keys of 256, a million values, 4 MiB of decoding); an answer past a bound is withheld too. The key itself must be at
-least 16 letters, digits or `._~+/=-` with no spaces, so the exact match can never hit a field name, and it is the one
-value both sent and looked for. Upstreams must be `https://` (or this computer's); `allowInsecureHttp: true` lets the
-key go over plain http on a network you trust. **The client identity sent upstream is the proxy's,
+two levels deep, or whose written text holds it (a key of digits echoed as a number). That is the guarantee: the key
+does not leave in those forms; a key split across strings or otherwise transformed is not detected. The check is
+bounded (`ANSWER_LIMITS`: 32 levels of nesting, strings of 64 KiB, keys and session ids of 4096 characters, a million
+values, counted before they are scheduled, and 4 MiB of decoding); an answer past a bound is withheld too.
+
+**The key format is this proxy's policy** (Python sets none): at least 16 letters, digits or `._~+/=-`, no spaces. It
+keeps the exact match from hitting short field names (a key could still equal a longer one, such as
+`embodiment_config`, which would only withhold answers), and it is the one value both sent and looked for.
+
+**Plain http.** Wherever the key is attached (the proxy's upstreams; the client's gateway, platform and data service,
+a relative URL resolved against the page; the internal `Transport` and `callService`), the destination must be
+`https://` or this computer: `localhost` or any name under `.localhost` (trusted by its spelling, as browsers do),
+127.0.0.0/8, `[::1]` or `[::ffff:127.0.0.1]`. `allowInsecureHttp: true` (literally `true`) lets the key go over plain
+http on a network you trust. **The client identity sent upstream is the proxy's,
 never the caller's:** `Dream-Client-Version: <clientVersion>` and `User-Agent: dream-client/<clientVersion>
 <instance>` on the POSTs (the instance from the client's `Dream-Client-Instance`, or the one a non-browser client's
 `User-Agent` names), and `User-Agent: dream-client/<clientVersion>` on the GETs. The version decides whether the
@@ -435,8 +449,10 @@ These differences are deliberate:
 - **Async.** `policy`, `getAction`, `resetEpisode` and `close` return promises. A second `getAction()` while one is
   in flight throws `DreamError`, where Python's thread lock does the same. `close()` aborts a call in flight (Python
   waits for it); a policy() superseded or closed mid-lookup opens nothing; `DreamCancelled` is TS-only.
-- **Numbers are checked.** Every number of a reply must be finite (JSON's `1e400` reads as Infinity), and so must
-  every returned row, the IK's targets, its answer and its diagnostics; a rotation_6d with a near-zero or parallel
+- **Numbers are checked.** Every actuator head of a reply (`q_r_chunk`, `q_l_chunk`, every `per_key` part, every
+  head the embodiment declares) must be null as a whole or arrays of finite numbers only: no NaN or infinity (JSON's
+  `1e400` reads as Infinity), null, hole, string or object where a joint value belongs, raw processing included.
+  Other keys are extensions, passed through as Python passes them. So must every returned row, the IK's targets, its answer and its diagnostics; a rotation_6d with a near-zero or parallel
   column is refused (Python divides by zero and returns NaN). A chunk extended from a single remaining pose holds it
   (Python's `extend_poses` divides by a zero span). `hz`, the speed caps and the horizon are range-checked.
 - **The final projection** (with `ik`, see above) is not in Python: Python's seam join after the IK can step a few

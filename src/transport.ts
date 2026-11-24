@@ -7,7 +7,7 @@
  * to the next one.
  */
 
-import { authorization, safeCause, safeMessage, scrub, scrubJson } from "./credentials.js";
+import { authorization, requireHttps, safeCause, scrubJson } from "./credentials.js";
 import { DreamCancelled, DreamConfigError, DreamError, DreamProtocolError, DreamTimeout, detail } from "./errors.js";
 import { CLIENT_VERSION } from "./version.js";
 
@@ -96,6 +96,8 @@ export interface TransportOptions {
   now?: () => number;
   /** `Dream-Client-Version`; {@link CLIENT_VERSION} by default. */
   clientVersion?: string;
+  /** Let `apiKey` go to a plain `http://` gateway on another computer: only literally `true`. */
+  allowInsecureHttp?: boolean;
   /**
    * `baseUrl` is your proxy, which builds the `User-Agent` upstream: send the instance as `Dream-Client-Instance`
    * instead of in a `User-Agent` (which a browser cannot set anyway).
@@ -133,6 +135,8 @@ export class Transport {
     this.now = options.now ?? (() => performance.now());
     this.instance = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => b.toString(16).padStart(2, "0")).join("");
     this.#secret = options.apiKey || null;
+    // Where the bearer header is attached: the destination it will really go to must be https (or this computer).
+    if (this.#secret) requireHttps(this.baseUrl, "baseUrl", options.allowInsecureHttp);
     const version = checkClientVersion(options.clientVersion ?? CLIENT_VERSION);
     this.#headers = {
       "Content-Type": "application/json",
@@ -189,8 +193,10 @@ export class Transport {
     } catch (error) {
       if (ended) throw this.aborted(ended, error);
       // A fetch that refuses a header names its value: never let the key into a message.
-      const why = scrub(safeMessage(error instanceof Error && error.cause instanceof Error ? error.cause : error), this.#secret);
-      throw new DreamProtocolError(`could not reach Dream Labs at ${this.baseUrl}: ${why}; check this computer's internet connection, or the baseUrl`, { cause: this.scrubbed(error) });
+      // One safe copy of the error, its cause read once under a guard (a getter may throw), for the message and the cause.
+      const safe = this.scrubbed(error);
+      const why = safe.cause instanceof Error ? safe.cause.message : safe.message;
+      throw new DreamProtocolError(`could not reach Dream Labs at ${this.baseUrl}: ${why}; check this computer's internet connection, or the baseUrl`, { cause: safe });
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);

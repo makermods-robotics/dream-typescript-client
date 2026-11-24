@@ -3,7 +3,7 @@
  * plus the JSON call the platform and the data service share (`dream.datasets._call`).
  */
 
-import { API_KEY_ENV, authorization, KEY_PER_SITE, scrub, scrubJson } from "./credentials.js";
+import { API_KEY_ENV, authorization, KEY_PER_SITE, requireHttps, scrub, scrubJson } from "./credentials.js";
 
 export { scrub };
 import { DreamAuthError, DreamConfigError, DreamProtocolError, DreamServerError } from "./errors.js";
@@ -52,6 +52,8 @@ export interface ServiceOptions {
   clientVersion?: string;
   /** `url` is your proxy: send the version as `Dream-Client-Version` too, for it to build the `User-Agent` upstream. */
   proxyHeaders?: boolean;
+  /** Let `apiKey` go to a plain `http://` service on another computer: only literally `true`. */
+  allowInsecureHttp?: boolean;
 }
 
 const TIMEOUT_MS = 60_000;
@@ -68,6 +70,7 @@ export async function callService(method: string, path: string, options: Service
   if (!options.apiKey && /(^|\.)dreamlabs\.ai(:\d+)?$/.test(hostOf(url))) {
     throw new DreamConfigError(`no api key: pass apiKey, or set ${API_KEY_ENV} (Node: @makermods/dreamlabs/node loadCredentials())`);
   }
+  if (options.apiKey) requireHttps(url, "the service URL", options.allowInsecureHttp);
   const version = options.clientVersion ?? CLIENT_VERSION;
   const headers: Record<string, string> = {
     Accept: "application/json",

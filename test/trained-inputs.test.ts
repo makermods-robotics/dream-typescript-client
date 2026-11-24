@@ -81,10 +81,12 @@ describe("float() as dream.arm_file reads URDF numbers", () => {
 
   it("reads in linear time, a long invalid attribute included", async () => {
     const { pyFloat } = await import("../src/pyfloat.js");
-    const started = performance.now();
-    for (const text of ["1_".repeat(200_000) + "x", "1".repeat(400_000) + "e", "1".repeat(200_000) + ".1e+_"]) expect(pyFloat(text)).toBeNaN();
+    for (const text of ["1_".repeat(200_000) + "x", "1".repeat(400_000) + "e", "1".repeat(200_000) + ".1e+_"]) {
+      const work = { steps: 0 };
+      expect(pyFloat(text, work)).toBeNaN();
+      expect(work.steps).toBeLessThanOrEqual(3 * text.length);
+    }
     // As in Python, a valid spelling too large for a double is an infinity (then refused as not finite).
     expect(pyFloat("\u0661".repeat(200_000) + ".")).toBe(Infinity);
-    expect(performance.now() - started).toBeLessThan(2000);
   });
 });

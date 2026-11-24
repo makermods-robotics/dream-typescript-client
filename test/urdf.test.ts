@@ -100,6 +100,11 @@ describe("defineArm refuses a malformed URDF", () => {
     expect(defineArm(file, edit('lower="0" upper="3.14" velocity="5"', 'lower="0" upper="3.14" velocity=""'))).toBeDefined();
   });
 
+  it("splits a vector as Python's str.split(): U+0085 separates, U+FEFF does not", () => {
+    expect(defineArm(file, edit('<origin xyz="-0.28 0 0"', '<origin xyz="-0.28\u00850\u20030"'))).toBeDefined();
+    refuses(edit('<origin xyz="-0.28 0 0"', '<origin xyz="-0.28\ufeff0 0"'), /not 3 finite numbers/);
+  });
+
   it("keeps rest inside the URDF limits, as Python", () => {
     refuses(metalUrdf, /rest puts joint3 at 3.2, outside \[0, 3.14\]/, { rest: [0, -1.2, 3.2, 0, 0, 0] });
     // At a limit, inside the URDF range but not the margined one, as dream.arm_file allows.

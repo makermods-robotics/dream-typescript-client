@@ -582,6 +582,7 @@ export class DreamClient {
       signal,
       clientVersion: this.#options.clientVersion,
       proxyHeaders: this.#proxyHeaders,
+      allowInsecureHttp: this.#options.allowInsecureHttp,
     };
   }
 

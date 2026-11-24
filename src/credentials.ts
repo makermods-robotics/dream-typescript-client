@@ -209,21 +209,40 @@ export const PROXY_KEY = /^[A-Za-z0-9._~+/=-]+$/;
 /** The shortest key a proxy takes. */
 export const PROXY_KEY_MIN = 16;
 
-/** Whether `host` (a URL's hostname) is this computer: `localhost`, 127.0.0.0/8, or `[::1]`. */
+/**
+ * Whether `hostname` (a URL's, as the URL standard writes it) is this computer: `localhost` and any name under
+ * `.localhost` (trusted by spelling, as browsers treat it), 127.0.0.0/8, `[::1]`, and the IPv4-mapped 127.0.0.0/8
+ * (`[::ffff:127.0.0.1]`).
+ */
 export function isLoopback(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/\.$/, "");
-  return host === "localhost" || host.endsWith(".localhost") || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) || host === "[::1]";
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    host === "[::1]" ||
+    /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(host)
+  );
 }
 
 /**
- * @throws DreamConfigError `url` is an absolute `http:` URL of another computer, which would carry the key in the clear,
- *   and `allowInsecureHttp` is not set.
+ * @throws DreamConfigError `url`, resolved where the request will go (a relative one against the page, when there is
+ *   one), is plain `http:` to another computer, which would carry the key in the clear, and `allowInsecureHttp` is not
+ *   literally `true`.
  */
-export function requireHttps(url: string, what: string, allowInsecureHttp: boolean | undefined): void {
-  if (allowInsecureHttp || !/^http:/i.test(url)) return;
-  if (isLoopback(new URL(url).hostname)) return;
+export function requireHttps(url: string, what: string, allowInsecureHttp: unknown): void {
+  if (allowInsecureHttp === true) return;
+  let resolved: URL;
+  try {
+    const page = (globalThis as { location?: { href?: unknown } }).location?.href;
+    resolved = typeof page === "string" ? new URL(url, page) : new URL(url);
+  } catch {
+    // A relative URL with no page to resolve it against: no request can go anywhere with it.
+    return;
+  }
+  if (resolved.protocol !== "http:" || isLoopback(resolved.hostname)) return;
   throw new DreamConfigError(
-    `${what} is plain http:// to another computer, so the API key would cross the network in the clear: use https://, or set allowInsecureHttp on a network you trust`,
+    `${what} is plain http:// to another computer, so the API key would cross the network in the clear: use https://, or set allowInsecureHttp: true on a network you trust`,
     { kind: "unsupported", key: what, row: null },
   );
 }

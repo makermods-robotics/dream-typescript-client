@@ -360,6 +360,7 @@ export class PolicyClient {
       now: this.now,
       clientVersion: options.clientVersion,
       proxyHeaders: options.proxyHeaders,
+      allowInsecureHttp: options.allowInsecureHttp,
     });
     this.onWarning = options.onWarning ?? ((warning) => console.warn(`${warning.name}: ${warning.message}`));
     this.onDiagnostics = options.onDiagnostics ?? null;
@@ -459,7 +460,7 @@ export class PolicyClient {
         checkPerKey(action as Record<string, unknown>, this.checks.perKeyWidths);
       }
       if (!isObject(action)) throw new DreamActionError(`the model's reply carries no action dict, got ${action === null ? "None" : typeof action}`);
-      checkFiniteAction(action);
+      checkFiniteAction(action, this.checks ? Object.keys(this.checks.action) : []);
       const rttS = (this.now() - sentAt) / 1000;
       // The loop keeps running while the IK solves, so the chunk is installed that much later than the reply arrives.
       const ikLeadS = this.ik && execution.elapsedExecutionS === undefined ? this.predictIkMs() / 1000 : 0;

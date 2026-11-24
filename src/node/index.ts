@@ -65,17 +65,22 @@ export function createClient(options: DreamClientOptions = {}, env: Env = proces
 /**
  * A `node:http` request listener that serves a standard fetch handler, such as the proxy's
  * (`createServer(nodeHandler(createDreamProxy({ ... })))`). The request's URL is built from its `Host` header; its body
- * is streamed to the handler, and a body the handler stops reading (the proxy's size limit) is not read further: the
- * connection is closed after the answer. A client that disconnects before the answer aborts the request's `signal`,
+ * is streamed to the handler. A body the handler did not read to its end (the proxy's size limit) is never buffered:
+ * after the answer is sent, what is left of it is read and thrown away, so a client still uploading finishes its write
+ * and reads the answer (closing on it instead makes the client's write fail, with EPIPE or ECONNRESET, before it sees
+ * the answer, as macOS and Windows do). At most `drainBytes` (16 MiB) more, for at most `drainMs` (5 s): past either
+ * the connection is closed. A client that disconnects before the answer aborts the request's `signal`,
  * which the proxy passes on to its upstream call. Nothing it does becomes an unhandled rejection: a failure before the
  * answer is a 500, one while sending it closes the connection.
  *
  * @param options.protocol The scheme of the URL the handler sees; `https` on a TLS socket, else `http`. Set it behind
  *   a TLS-terminating proxy.
+ * @param options.drainBytes The most of an unread body thrown away after the answer, bytes.
+ * @param options.drainMs The longest an unread body is waited for after the answer, milliseconds.
  */
 export function nodeHandler(
   handler: (request: Request) => Promise<Response>,
-  options: { protocol?: "http" | "https" } = {},
+  options: { protocol?: "http" | "https"; drainBytes?: number; drainMs?: number } = {},
 ): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
   return async (request, response) => {
     const answer = (status: number, error: string) => {
@@ -132,16 +137,42 @@ export function nodeHandler(
       const reply = await handler(fetchRequest);
       const bytes = reply.body ? Buffer.from(await reply.arrayBuffer()) : null;
       const headers = Object.fromEntries(reply.headers);
-      // A body the handler did not read to its end is not read further: the connection closes after the answer.
       const unread = abandoned || !request.complete;
-      if (unread) headers.connection = "close";
       if (response.destroyed) return;
       response.writeHead(reply.status, headers);
-      response.end(bytes ?? undefined, () => unread && request.destroy());
+      response.end(bytes ?? undefined);
+      if (unread) {
+        abandoned = true;
+        drain(request, options.drainBytes ?? DRAIN_BYTES, options.drainMs ?? DRAIN_MS);
+      }
     } catch {
       answer(500, "internal");
     }
   };
+}
+
+/** The most of an unread request body nodeHandler() throws away after the answer, bytes. */
+export const DRAIN_BYTES = 16 * 1024 * 1024;
+/** The longest nodeHandler() waits for an unread request body after the answer, milliseconds. */
+export const DRAIN_MS = 5000;
+
+/** Reads what is left of `request` and throws it away; past `limit` bytes or `ms`, closes the connection. */
+function drain(request: IncomingMessage, limit: number, ms: number): void {
+  if (request.complete) return;
+  let left = limit;
+  const stop = () => {
+    clearTimeout(timer);
+    request.destroy();
+  };
+  const timer = setTimeout(stop, ms);
+  timer.unref();
+  request.on("data", (chunk: Buffer) => {
+    left -= chunk.byteLength;
+    if (left < 0) stop();
+  });
+  request.on("end", () => clearTimeout(timer));
+  request.on("close", () => clearTimeout(timer));
+  request.resume();
 }
 
 export type { Credentials };

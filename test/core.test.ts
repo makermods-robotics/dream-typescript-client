@@ -1,6 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   DreamActionError,
@@ -159,9 +160,10 @@ describe("the package", () => {
         else if (path.endsWith(".ts")) files.push(path);
       }
     };
-    walk(new URL("../src", import.meta.url).pathname);
+    walk(fileURLToPath(new URL("../src", import.meta.url)));
+    expect(files.length).toBeGreaterThan(10);
     for (const file of files) {
-      if (file.includes("/src/node/")) continue;
+      if (file.includes(`${sep}src${sep}node${sep}`)) continue;
       const code = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
       expect(code, file).not.toMatch(/from "node:|\brequire\(|(^|[^\w.])(process|Buffer|__dirname)\b/);
     }

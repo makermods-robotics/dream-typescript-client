@@ -407,10 +407,40 @@ describe("nodeHandler", () => {
     expect(reply.status).toBe(500);
   });
 
-  it("answers 413 to a body over the limit without reading it all", async () => {
+  it("answers 413 to a body over the limit, declared or streamed, and the client reads it", async () => {
     const { url, seen } = await serve();
-    const reply = await fetch(`${url}/v1/get_action`, { method: "POST", body: new Uint8Array(1024 * 1024) });
-    expect(reply.status).toBe(413);
+    // Declared: refused before a byte is read. The rest is thrown away after the answer, so the client's upload
+    // completes and it reads the 413 on every platform (closing at once made its write fail on macOS and Windows).
+    for (let i = 0; i < 5; i++) {
+      const reply = await fetch(`${url}/v1/get_action`, { method: "POST", body: new Uint8Array(1024 * 1024) });
+      expect(reply.status).toBe(413);
+      expect(await reply.json()).toEqual({ proxy_error: "too large" });
+    }
+    // Streamed with no length: the proxy stops reading at the limit.
+    const chunks = Array.from({ length: 32 }, () => new Uint8Array(32 * 1024));
+    const stream = new ReadableStream<Uint8Array>({ pull: (controller) => (chunks.length ? controller.enqueue(chunks.pop()!) : controller.close()) });
+    const streamed = await fetch(`${url}/v1/get_action`, { method: "POST", body: stream, duplex: "half" } as RequestInit);
+    expect(streamed.status).toBe(413);
     expect(seen).toHaveLength(0);
+  });
+
+  it("never buffers an unread body: past drainBytes the connection is closed", async () => {
+    const handler = createDreamProxy({ apiKey: KEY, allowedHosts: "any", fetch: upstream().fetch, maxBodyBytes: 1024 });
+    const listener = nodeHandler(handler, { drainBytes: 256 * 1024 });
+    let received = -1;
+    server = createServer((request, response) => {
+      request.socket.once("close", () => (received = request.socket.bytesRead));
+      void listener(request, response);
+    });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const size = 16 * 1024 * 1024;
+    // The client sees the 413 or, once the server closes mid-upload, a reset: either way it is not read in full.
+    const outcome = await fetch(`http://127.0.0.1:${(server!.address() as AddressInfo).port}/v1/get_action`, { method: "POST", body: new Uint8Array(size) })
+      .then((reply) => reply.status)
+      .catch(() => "reset");
+    expect([413, "reset"]).toContain(outcome);
+    for (let i = 0; i < 200 && received < 0; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(received).toBeGreaterThan(0);
+    expect(received).toBeLessThan(size / 2);
   });
 });

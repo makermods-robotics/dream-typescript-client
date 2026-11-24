@@ -83,6 +83,16 @@ describe("defineArm refuses a malformed URDF", () => {
     expect(() => defineArm({ ...file, tcp_calibration: { at: "2026-11-01" } }, metalUrdf)).not.toThrow();
   });
 
+  it("reads numbers as Python's float(): no hex, binary or octal spellings, underscores between digits", () => {
+    refuses(edit('lower="0" upper="3.14"', 'lower="0" upper="0x10"'), /joint 'joint3' has limits \["0","0x10"\], not finite numbers/);
+    refuses(edit('lower="0" upper="3.14"', 'lower="0b0" upper="3.14"'), /not finite numbers/);
+    refuses(edit('<origin xyz="-0.28 0 0"', '<origin xyz="-0x1 0 0"'), /has origin xyz "-0x1 0 0", not 3 finite numbers/);
+    refuses(edit('lower="0" upper="3.14"', 'lower="0" upper="inf"'), /not finite numbers/);
+    refuses(edit('lower="0" upper="3.14"', 'lower="0" upper="1__0"'), /not finite numbers/);
+    expect(defineArm(file, edit('lower="0" upper="3.14"', 'lower="0" upper="3_1.4e-0_1 "')).sideArm("right").data.limits[2]).toEqual([0, 3.14]);
+    expect(defineArm(file, edit('lower="0" upper="3.14"', 'lower=" +0." upper="3.14"')).sideArm("right").data.limits[2]).toEqual([0, 3.14]);
+  });
+
   it("keeps rest inside the URDF limits, as Python", () => {
     refuses(metalUrdf, /rest puts joint3 at 3.2, outside \[0, 3.14\]/, { rest: [0, -1.2, 3.2, 0, 0, 0] });
     // At a limit, inside the URDF range but not the margined one, as dream.arm_file allows.

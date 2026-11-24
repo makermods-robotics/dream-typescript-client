@@ -615,7 +615,7 @@ def gen_trained(rng: np.random.Generator) -> None:
     for sample in (vga + "==", vga + "====", vga.rstrip("=") + "=", vga + "*", "\u00e9" + vga, vga[:5] + "=" + vga[5:]):
         sizes.append({"frame": sample, "size": _jpeg_size(sample)})
     decodes = []
-    for text in ["YQ==", "YQ=", "YQ", "YQ===", "YQ==YWI=", "Y=Q==", "YWJj", "YWJj====", "YW=Jj", "YWJ=", "YWJ", "Y", "YQ=*=", "=YQ==", "YWJjZA", "YWJjZA=x=", "Y W\nJ j", "", "===="]:
+    for text in ["YQ==", "YQ=", "YQ", "YQ===", "YQ==YWI=", "Y=Q==", "YWJj", "YWJj====", "YW=Jj", "YWJ=", "YWJ", "Y", "YQ=*=", "=YQ==", "YWJjZA", "YWJjZA=x=", "Y W\nJ j", "", "====", "YQ==\u00e9", "\u00e9YQ=="]:
         try:
             decodes.append({"text": text, "bytes": list(base64.b64decode(text, validate=False))})
         except ValueError:
@@ -636,9 +636,16 @@ def gen_trained(rng: np.random.Generator) -> None:
         prompt = None if rng.random() < 0.1 else (prompts[0] if prompts and rng.random() < 0.3 else phrase())
         trained = {"cameras": cameras, "prompts": prompts}
         notes.append({"trained": trained, "frames": frames, "prompt": prompt, "notes": trained_inputs.notes(trained, "dream-1-ft:0a1b2c3d-x", frames, prompt)})
-    reprs = [{"text": t, "repr": repr(t)} for t in ["it's", 'say "hi"', "both ' and \"", "tab\tnew\nline", "\x00\x7f\x85\xa0", "\u200b\u2028\ue000", "\U0001f600 ok", "back\\slash"]]
+    reprs = [{"text": t, "repr": repr(t)} for t in ["it's", 'say "hi"', "both ' and \"", "tab\tnew\nline", "\x00\x7f\x85\xa0", "\u200b\u2028\ue000", "\U0001f600 ok", "back\\slash",
+        # Unicode version boundaries: assigned after 15.0 (printed by a newer runtime, escaped by Python 3.12), and an
+        # unassigned code point.
+        "\U0001fae9 \U0001fa8f \u1c89 \U00031350", "\U000e0001 \U00100000"]]
     formats = [{"x": x, "text": f"{x:.2f}"} for x in [1.125, 1.375, 0.625, 1.7777777, 4 / 3, 16 / 9, 2.005, 1.0, 0.125, 3.875]]
     quotes = [{"text": t, "quoted": urllib.parse.quote(t, safe="")} for t in ["dream-1-ft:0a1b2c3d-towels", "a b/c?d#e", "x!'()*~._-", "naïve"]]
+    # A camera role named __proto__ is a role like any other.
+    proto = {"cameras": {"__proto__": [[640, 360]]}, "prompts": []}
+    proto_frames = {"video.__proto__": [jpeg_frame(3, 640, 480)]}
+    notes.append({"trained": proto, "frames": proto_frames, "prompt": None, "notes": trained_inputs.notes(proto, "dream-1-ft:0a1b2c3d-x", proto_frames, None)})
     bad = {"cameras": {"front": [None, [640, "x"], [0, 480], [640, 360, 1]], "wrist_l": "640x480", "wrist_r": [[640, 360]]}, "prompts": ["wave", None, 3]}
     try:
         bad_notes = trained_inputs.notes(bad, "dream-1-ft:0a1b2c3d-x", {"video.front": [jpeg_frame(1, 640, 480)], "video.wrist_r": [jpeg_frame(2, 640, 480)]}, "wave")

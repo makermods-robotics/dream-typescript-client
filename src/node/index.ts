@@ -53,12 +53,14 @@ export function loadCredentials(env: Env = process.env): Credentials {
 export function createClient(options: DreamClientOptions = {}, env: Env = process.env): DreamClient {
   if (options.proxyUrl !== undefined) return new DreamClient(options);
   const credentials = loadCredentials(env);
+  // Each one is the option's, else the credentials': an option given as undefined is left out, never a reset to the
+  // production default (which would send the staging key there). `apiKey: null` asks for no key.
   return new DreamClient({
-    apiKey: credentials.apiKey,
-    baseUrl: credentials.gatewayUrl,
-    platformUrl: credentials.platformUrl,
-    dataUrl: credentials.dataUrl,
     ...options,
+    apiKey: options.apiKey === undefined ? credentials.apiKey : options.apiKey,
+    baseUrl: options.baseUrl ?? credentials.gatewayUrl,
+    platformUrl: options.platformUrl ?? credentials.platformUrl,
+    dataUrl: options.dataUrl ?? credentials.dataUrl,
   });
 }
 
@@ -93,6 +95,11 @@ export function nodeHandler(
     response.on("close", () => response.writableFinished || disconnected.abort(new DOMException("the client disconnected", "AbortError")));
     let fetchRequest: Request;
     let abandoned = false;
+    // The URL comes from the request's own Host, never a made-up one: a request without one (HTTP/1.0), with a
+    // malformed one, or with an absolute-form target is refused before the handler sees it.
+    const host = request.headers.host;
+    if (typeof host !== "string" || !HOST.test(host)) return answer(400, "missing or malformed Host");
+    if (!request.url?.startsWith("/")) return answer(400, "request target must be a path");
     try {
       const protocol = options.protocol ?? ((request.socket as TLSSocket).encrypted ? "https" : "http");
       const headers = new Headers();
@@ -123,7 +130,7 @@ export function nodeHandler(
           },
         });
       }
-      fetchRequest = new Request(`${protocol}://${request.headers.host ?? "localhost"}${request.url ?? "/"}`, {
+      fetchRequest = new Request(`${protocol}://${host}${request.url}`, {
         method,
         headers,
         body,
@@ -150,6 +157,9 @@ export function nodeHandler(
     }
   };
 }
+
+/** A Host header: a DNS name or IPv4 address, or a bracketed IPv6 literal, and an optional port. */
+const HOST = /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\.?|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/;
 
 /** The most of an unread request body nodeHandler() throws away after the answer, bytes. */
 export const DRAIN_BYTES = 16 * 1024 * 1024;

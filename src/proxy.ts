@@ -10,12 +10,15 @@
  *   GET  <basePath>/v1/models                                        -> the platform (`platformUrl`)
  *   GET  <basePath>/v1/fine_tuning/models/<fine-tune>/training_data  -> the data service (`dataUrl`)
  *
- * Bodies pass through unchanged (DreamAPI reports every outcome in the body's status envelope). The client identity
+ * Requests pass through unchanged; answers are parsed and written anew, in the shape their route produces, and withheld
+ * when they carry the key (see {@link answerFor} and {@link carriesSecret}). The client identity
  * sent upstream is the proxy's own, never the caller's: `Dream-Client-Version: <clientVersion>` and `User-Agent:
  * dream-client/<clientVersion> <instance>` on the POSTs (the instance from the client's `Dream-Client-Instance`), and
  * `User-Agent: dream-client/<clientVersion>` on the GETs. It is {@link CLIENT_VERSION} unless your server configures
  * another: the version decides whether the gateway serves a checkpoint whose robot has parts, which this package does
- * not convert, so a page must not be able to claim one. A request with an `Origin` must come from one of
+ * not convert, so a page must not be able to claim one. A GET must carry `Dream-Client-Version` (the client always
+ * sends it through a proxy), and a request whose Fetch Metadata says cross-site must carry an allowed `Origin`. A
+ * request with an `Origin` must come from one of
  * `allowedOrigins` (none by default), which also get the CORS headers and their preflight answered; a `Host` must be
  * one of `allowedHosts`. Bodies over `maxBodyBytes` are refused, and an answer that carries the key is withheld; the
  * key is never logged or put in an error.
@@ -98,6 +101,10 @@ export const PROXY_TIMEOUT_MS = 70_000;
 /** The training_data path below `<basePath>/v1/fine_tuning/models/`. */
 const TRAINING_DATA = /^\/v1\/fine_tuning\/models\/([^/]+)\/training_data$/;
 const INSTANCE = /^[0-9a-f]{8}$/;
+/** A published fine-tune id: `dream-1-ft:<uid8>-<suffix>`, the suffix `[a-z0-9-]{1,40}` (`dream.fine_tuning.create`). */
+const FINE_TUNE_ID = /^dream-1-ft:[a-z0-9]{8}-[a-z0-9-]{1,40}$/;
+/** An HTTP header name. */
+const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const AGENT_INSTANCE = new RegExp(`^${USER_AGENT_PRODUCT}/[!#$%&'*+.^_\`|~0-9A-Za-z-]{1,64} ([0-9a-f]{8})$`);
 /** Statuses whose answer has no body. */
 const NO_BODY = new Set([101, 204, 205, 304]);
@@ -105,6 +112,7 @@ const NO_BODY = new Set([101, 204, 205, 304]);
 interface Route {
   method: "GET" | "POST";
   target: string;
+  answer: AnswerShape;
 }
 
 /** Why a request or answer body was not read whole. */
@@ -124,39 +132,62 @@ class BodyError extends Error {
  */
 export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
   if (typeof options !== "object" || options === null) throw new DreamConfigError("createDreamProxy() takes an options object");
-  if (typeof options.apiKey !== "string" || !options.apiKey) throw new DreamConfigError("createDreamProxy() needs apiKey, your Dream API key");
-  const secret = options.apiKey;
+  // Every option is read and checked here, once: changing the object afterwards changes nothing.
+  const {
+    apiKey,
+    allowedHosts,
+    allowedOrigins = [],
+    basePath: base = "",
+    gatewayUrl = DEFAULT_GATEWAY_URL,
+    platformUrl = DEFAULT_PLATFORM_URL,
+    dataUrl = DEFAULT_DATA_URL,
+    clientVersion = CLIENT_VERSION,
+    maxBodyBytes: bodyLimit = PROXY_MAX_BODY_BYTES,
+    uploadTimeoutMs: uploadLimit = PROXY_UPLOAD_TIMEOUT_MS,
+    maxResponseBytes: answerLimit = PROXY_MAX_RESPONSE_BYTES,
+    timeoutMs: timeLimit = PROXY_TIMEOUT_MS,
+    allowedHeaders = [],
+    authorize,
+    fetch: fetchOption,
+  } = options;
+  if (typeof apiKey !== "string" || !apiKey) throw new DreamConfigError("createDreamProxy() needs apiKey, your Dream API key");
+  const secret = apiKey;
   const auth = authorization(secret);
-  if (options.allowedHosts !== "any" && !Array.isArray(options.allowedHosts)) {
+  if (allowedHosts !== "any" && !Array.isArray(allowedHosts)) {
     throw new DreamConfigError(
       "createDreamProxy() needs allowedHosts: the Host names it answers to (e.g. ['127.0.0.1:8787']), or 'any' behind a router that only sends it your own names",
     );
   }
-  const hosts = options.allowedHosts === "any" ? null : new Set(options.allowedHosts.map((host) => String(host).toLowerCase()));
-  const gateway = checkServiceUrl(options.gatewayUrl ?? DEFAULT_GATEWAY_URL, "gatewayUrl", false);
-  const platform = checkServiceUrl(options.platformUrl ?? DEFAULT_PLATFORM_URL, "platformUrl", false);
-  const data = checkServiceUrl(options.dataUrl ?? DEFAULT_DATA_URL, "dataUrl", false);
-  const version = checkClientVersion(options.clientVersion ?? CLIENT_VERSION);
-  const origins = new Set((options.allowedOrigins ?? []).map(checkOrigin));
-  const basePath = (options.basePath ?? "").replace(/\/+$/, "");
-  if (basePath && !basePath.startsWith("/")) throw new DreamConfigError(`basePath must start with /, got ${JSON.stringify(options.basePath)}`);
-  const maxBodyBytes = positive(options.maxBodyBytes ?? PROXY_MAX_BODY_BYTES, "maxBodyBytes");
-  const maxResponseBytes = positive(options.maxResponseBytes ?? PROXY_MAX_RESPONSE_BYTES, "maxResponseBytes");
-  const uploadTimeoutMs = positive(options.uploadTimeoutMs ?? PROXY_UPLOAD_TIMEOUT_MS, "uploadTimeoutMs");
-  const timeoutMs = positive(options.timeoutMs ?? PROXY_TIMEOUT_MS, "timeoutMs");
-  const allowHeaders = ["Content-Type", "Accept", CLIENT_VERSION_HEADER, CLIENT_INSTANCE_HEADER, ...(options.allowedHeaders ?? [])].join(", ");
-  const upstream = options.fetch ?? ((input: string, init: RequestInit) => globalThis.fetch(input, init));
+  const hosts = allowedHosts === "any" ? null : new Set(allowedHosts.map((host) => String(host).toLowerCase()));
+  const gateway = checkServiceUrl(gatewayUrl, "gatewayUrl", false);
+  const platform = checkServiceUrl(platformUrl, "platformUrl", false);
+  const data = checkServiceUrl(dataUrl, "dataUrl", false);
+  const version = checkClientVersion(clientVersion);
+  if (!Array.isArray(allowedOrigins)) throw new DreamConfigError("allowedOrigins must be a list of origins");
+  const origins = new Set(allowedOrigins.map(checkOrigin));
+  const basePath = String(base).replace(/\/+$/, "");
+  if (basePath && !basePath.startsWith("/")) throw new DreamConfigError(`basePath must start with /, got ${JSON.stringify(base)}`);
+  const maxBodyBytes = whole(bodyLimit, "maxBodyBytes");
+  const maxResponseBytes = whole(answerLimit, "maxResponseBytes");
+  const uploadTimeoutMs = whole(uploadLimit, "uploadTimeoutMs");
+  const timeoutMs = whole(timeLimit, "timeoutMs");
+  if (!Array.isArray(allowedHeaders) || !allowedHeaders.every((h) => typeof h === "string" && TOKEN.test(h))) {
+    throw new DreamConfigError("allowedHeaders must be a list of header names");
+  }
+  const allowHeaders = ["Content-Type", "Accept", CLIENT_VERSION_HEADER, CLIENT_INSTANCE_HEADER, ...allowedHeaders].join(", ");
+  if (authorize !== undefined && typeof authorize !== "function") throw new DreamConfigError("authorize must be a function");
+  if (fetchOption !== undefined && typeof fetchOption !== "function") throw new DreamConfigError("fetch must be a function");
+  const upstream = fetchOption ?? ((input: string, init: RequestInit) => globalThis.fetch(input, init));
   /** The instance named for a caller that sends none: one per proxy, so such callers count as one robot. */
   const ownInstance = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => b.toString(16).padStart(2, "0")).join("");
-  /** The key as an answer could carry it: as is, and JSON-escaped. */
-  const leaks = [...new Set([secret, JSON.stringify(secret).slice(1, -1), JSON.stringify(secret).slice(1, -1).replace(/\//g, "\\/")])];
   const routes: Record<string, Route> = {
-    [GET_ACTION_PATH]: { method: "POST", target: `${gateway}${GET_ACTION_PATH}` },
-    [END_SESSION_PATH]: { method: "POST", target: `${gateway}${END_SESSION_PATH}` },
-    "/v1/models": { method: "GET", target: `${platform}/v1/models` },
+    [GET_ACTION_PATH]: { method: "POST", target: `${gateway}${GET_ACTION_PATH}`, answer: "gateway" },
+    [END_SESSION_PATH]: { method: "POST", target: `${gateway}${END_SESSION_PATH}`, answer: "gateway" },
+    "/v1/models": { method: "GET", target: `${platform}/v1/models`, answer: "models" },
   };
 
-  const route = (path: string): Route | null => {
+  /** The route, null for none, or "not_fine_tune" for a training-data path whose id cannot be a fine-tune's. */
+  const route = (path: string): Route | "not_fine_tune" | null => {
     if (Object.hasOwn(routes, path)) return routes[path]!;
     const training = TRAINING_DATA.exec(path);
     if (!training) return null;
@@ -166,9 +197,10 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
     } catch {
       return null;
     }
-    // Only a fine-tune's own record, as the client asks for it: never another path on the data service.
-    if (!checkpoint.startsWith(FINE_TUNE_PREFIX) || checkpoint.length > 256 || /[\u0000-\u001f\u007f/?#\\]/.test(checkpoint)) return null;
-    return { method: "GET", target: `${data}/v1/fine_tuning/models/${pyQuote(checkpoint)}/training_data` };
+    if (!checkpoint.startsWith(FINE_TUNE_PREFIX)) return null;
+    // Only a published fine-tune id (`dream-1-ft:<uid8>-<suffix>`): anything else is not looked up with the key.
+    if (!FINE_TUNE_ID.test(checkpoint)) return "not_fine_tune";
+    return { method: "GET", target: `${data}/v1/fine_tuning/models/${pyQuote(checkpoint)}/training_data`, answer: "training" };
   };
 
   return async (request: Request): Promise<Response> => {
@@ -184,28 +216,36 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
     }
     if (hosts && !hosts.has((request.headers.get("host") ?? url.host).toLowerCase())) return fail(421, "unknown host");
     if (origin !== null && !allowed) return json(403, { proxy_error: "origin not allowed" }, origins.size ? { Vary: "Origin" } : {});
+    // A navigation or a no-CORS load from another site carries no Origin; Fetch Metadata names it.
+    if (!allowed && request.headers.get("sec-fetch-site") === "cross-site") return json(403, { proxy_error: "cross-site request" }, origins.size ? { Vary: "Origin" } : {});
     if (basePath && url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`)) return fail(404, "no such route");
     const target = route(url.pathname.slice(basePath.length));
     if (!target) return fail(404, "no such route");
+    const method = target === "not_fine_tune" ? "GET" : target.method;
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: { ...cors, "Access-Control-Allow-Methods": `${target.method}, OPTIONS`, "Access-Control-Allow-Headers": allowHeaders, "Access-Control-Max-Age": "600" },
+        headers: { ...cors, "Access-Control-Allow-Methods": `${method}, OPTIONS`, "Access-Control-Allow-Headers": allowHeaders, "Access-Control-Max-Age": "600" },
       });
     }
-    if (request.method !== target.method) return fail(405, "method not allowed", { Allow: `${target.method}, OPTIONS` });
+    if (request.method !== method) return fail(405, "method not allowed", { Allow: `${method}, OPTIONS` });
+    // The client always sends Dream-Client-Version through a proxy; a page cannot add it to a navigation, an image or a
+    // form, and from another origin only after a preflight the origin check answers.
+    if (method === "GET" && !request.headers.has(CLIENT_VERSION_HEADER)) return fail(400, "send Dream-Client-Version, as DreamClient({ proxyUrl }) does");
+    if (target === "not_fine_tune") return json(404, { error: { code: "not_found", message: "not a fine-tune id" } }, cors);
     const signal = request.signal;
-    if (options.authorize) {
+    // The caller gave up (the page cancelled, the connection closed): nothing more is done or sent on its behalf.
+    if (signal.aborted) return fail(499, "cancelled");
+    if (authorize) {
       let verdict: boolean | Response;
       try {
-        verdict = await options.authorize(new Request(request.url, { method: request.method, headers: request.headers, signal }));
+        verdict = await untilAborted(Promise.resolve(authorize(new Request(request.url, { method: request.method, headers: request.headers, signal }))), signal);
       } catch {
-        return fail(500, "authorize failed");
+        return signal.aborted ? fail(499, "cancelled") : fail(500, "authorize failed");
       }
       if (verdict instanceof Response) return withHeaders(verdict, cors);
       if (verdict !== true) return fail(401, "unauthorized");
     }
-    // The caller gave up meanwhile (the page cancelled, the connection closed): nothing is sent on its behalf.
     if (signal.aborted) return fail(499, "cancelled");
     const headers: Record<string, string> = { ...auth, Accept: "application/json" };
     let body: Uint8Array<ArrayBuffer> | undefined;
@@ -229,68 +269,191 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
     } else {
       headers["User-Agent"] = `${USER_AGENT_PRODUCT}/${version}`;
     }
-    // The caller's cancellation and the deadline end the exchange, answer included.
+    // The caller's cancellation and the deadline end the exchange, answer included, even with a fetch that ignores
+    // its signal.
     const exchange = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
     let reply: Response;
     let payload: Uint8Array<ArrayBuffer> | null;
     try {
-      reply = await upstream(target.target, { method: target.method, headers, body, redirect: "manual", signal: exchange });
+      reply = await untilAborted(upstream(target.target, { method: target.method, headers, body, redirect: "manual", signal: exchange }), exchange);
       payload = NO_BODY.has(reply.status) || !reply.body ? null : await readAll(reply.body, maxResponseBytes, exchange, 502);
     } catch (error) {
       if (signal.aborted) return fail(499, "cancelled");
       if (error instanceof BodyError) return fail(502, "upstream answer too large");
       const name = error instanceof Error ? error.name : "";
-      return name === "TimeoutError" ? fail(504, "timeout") : fail(502, "unreachable");
-    }
-    if (payload !== null) {
-      const text = new TextDecoder().decode(payload);
-      // An upstream (or a fetch) that echoes the request would hand the key to the page.
-      if (leaks.some((leak) => text.includes(leak))) return fail(502, "upstream answer withheld");
+      return name === "TimeoutError" || exchange.aborted ? fail(504, "timeout") : fail(502, "unreachable");
     }
     const status = reply.status >= 200 && reply.status <= 599 ? reply.status : 502;
-    return new Response(NO_BODY.has(status) ? null : (payload ?? new Uint8Array(0)), {
-      status,
-      headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" },
-    });
+    if (NO_BODY.has(status)) return new Response(null, { status, headers: { ...cors, "Cache-Control": "no-store" } });
+    // Only an answer of the route's own shape goes back, parsed and written anew, and only when no key or string in
+    // it carries the key (see answerFor).
+    const answer = answerFor(target.answer, status, payload, secret);
+    if (answer === null) return fail(502, "upstream answer withheld");
+    return new Response(answer, { status, headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
   };
 }
 
+/** What each route's answer may be, besides the key check (see {@link answerFor}). */
+type AnswerShape = "gateway" | "models" | "training";
+
+const ENVELOPE_FIELDS = ["code", "name", "reason", "retryable", "retry_after_s", "detail", "trace_id"];
+const MODEL_FIELDS = ["id", "owner", "base_model", "embodiment", "servable", "created_at", "cameras", "embodiment_config", "parts_withheld"];
+
 /**
- * A stream read whole, or a {@link BodyError} with `tooLarge` once it passes `limit` bytes; `signal` cancels the read
- * (its reason is thrown). The stream is cancelled on every path that does not finish it.
+ * The answer to pass back, re-serialised, or null to withhold it. It must be JSON of the route's shape:
+ *
+ * - get_action and end_session: an object with a `status` envelope (a string `code`; `name`, `reason`, `retryable`,
+ *   `retry_after_s`, `detail` and `trace_id` kept when they are strings, numbers, booleans or null), and `session_id`
+ *   (a string or null), `actions` (any JSON) and `timing` (an object of numbers) when present; nothing else is kept.
+ * - models: a list of model objects, each with a string `id`, keeping only the fields the client reads.
+ * - training_data: an object, keeping only `cameras` and `prompts`.
+ * - a refusal of the platform or the data service (status 400 or more): `{ error: { code, message } }`, strings.
+ *
+ * Then every key and string in what is kept is checked for the key ({@link carriesSecret}).
  */
-async function readAll(stream: ReadableStream<Uint8Array>, limit: number, signal: AbortSignal, tooLarge: number): Promise<Uint8Array<ArrayBuffer>> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  let stop: (() => void) | null = null;
-  const stopped = new Promise<never>((_, reject) => {
-    stop = () => reject(signal.reason);
-    if (signal.aborted) stop();
-    else signal.addEventListener("abort", stop, { once: true });
-  });
-  stopped.catch(() => undefined);
+export function answerFor(shape: AnswerShape, status: number, payload: Uint8Array | null, secret: string): string | null {
+  let decoded: unknown;
   try {
-    for (;;) {
-      const { done, value } = await Promise.race([reader.read(), stopped]);
-      if (done) break;
-      size += value.byteLength;
-      if (size > limit) throw new BodyError(tooLarge, "too large");
-      chunks.push(value);
-    }
-  } catch (error) {
-    await reader.cancel().catch(() => undefined);
-    throw error;
-  } finally {
-    signal.removeEventListener("abort", stop!);
+    decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(payload ?? new Uint8Array(0)));
+  } catch {
+    return null;
   }
-  const out = new Uint8Array(new ArrayBuffer(size));
-  let at = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, at);
-    at += chunk.byteLength;
+  const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+  const scalar = (value: unknown) => value === null || ["string", "number", "boolean"].includes(typeof value);
+  const pick = (from: Record<string, unknown>, keys: readonly string[]) => Object.fromEntries(keys.filter((key) => Object.hasOwn(from, key)).map((key) => [key, from[key]]));
+  let kept: unknown = null;
+  if (shape === "gateway") {
+    if (!record(decoded) || !record(decoded.status) || typeof decoded.status.code !== "string") return null;
+    const envelope = pick(decoded.status, ENVELOPE_FIELDS);
+    if (!Object.values(envelope).every(scalar)) return null;
+    const out: Record<string, unknown> = { status: envelope };
+    if (Object.hasOwn(decoded, "session_id")) {
+      if (decoded.session_id !== null && typeof decoded.session_id !== "string") return null;
+      out.session_id = decoded.session_id;
+    }
+    if (Object.hasOwn(decoded, "actions")) out.actions = decoded.actions;
+    if (Object.hasOwn(decoded, "timing")) {
+      if (!record(decoded.timing) || !Object.values(decoded.timing).every((v) => v === null || typeof v === "number")) return null;
+      out.timing = decoded.timing;
+    }
+    kept = out;
+  } else if (status >= 400) {
+    if (!record(decoded) || !record(decoded.error)) return null;
+    const error = pick(decoded.error, ["code", "message"]);
+    if (!Object.values(error).every((v) => typeof v === "string")) return null;
+    kept = { error };
+  } else if (shape === "models") {
+    if (!Array.isArray(decoded) || !decoded.every((m) => record(m) && typeof m.id === "string")) return null;
+    kept = decoded.map((m) => pick(m as Record<string, unknown>, MODEL_FIELDS));
+  } else {
+    if (!record(decoded)) return null;
+    kept = pick(decoded, ["cameras", "prompts"]);
+  }
+  return carriesSecret(kept, secret) ? null : JSON.stringify(kept);
+}
+
+/**
+ * Whether `value` carries `secret` (and so `Bearer <secret>`) in any object key or string, as written or decoded: from
+ * `\uXXXX` escapes (JSON text inside a string), from percent-encoding, and from every run of base64, base64url or hex
+ * characters, each decoded at every alignment, to two levels. Numbers carry nothing. Any other encoding (a key split
+ * across strings, reversed, encrypted) is not detected.
+ */
+export function carriesSecret(value: unknown, secret: string): boolean {
+  const seen = (text: string, depth: number): boolean => {
+    if (text.includes(secret)) return true;
+    if (depth >= 2) return false;
+    for (const decoded of decodings(text)) if (decoded !== text && seen(decoded, depth + 1)) return true;
+    return false;
+  };
+  const walk = (node: unknown): boolean => {
+    if (typeof node === "string") return seen(node, 0);
+    if (Array.isArray(node)) return node.some(walk);
+    if (typeof node === "object" && node !== null) return Object.entries(node).some(([key, item]) => seen(key, 0) || walk(item));
+    return false;
+  };
+  return walk(value);
+}
+
+/** The texts a string may hide another in: unescaped, percent-decoded, and its base64/base64url/hex runs decoded. */
+function decodings(text: string): string[] {
+  const out: string[] = [];
+  out.push(text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))));
+  out.push(text.replace(/%([0-9a-fA-F]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))));
+  for (const [run] of text.matchAll(/[A-Za-z0-9+/_-]{8,}={0,2}/g)) {
+    const standard = run.replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
+    for (let skip = 0; skip < 4 && skip < standard.length; skip++) {
+      let part = standard.slice(skip);
+      part = part.slice(0, part.length - (part.length % 4 === 1 ? 1 : 0));
+      try {
+        out.push(atob(part + "=".repeat((4 - (part.length % 4)) % 4)));
+      } catch {
+        // not base64 at this alignment
+      }
+    }
+  }
+  for (const [run] of text.matchAll(/[0-9a-fA-F]{8,}/g)) {
+    for (const skip of [0, 1]) {
+      const pairs = run.slice(skip).match(/../g) ?? [];
+      out.push(pairs.map((pair) => String.fromCharCode(parseInt(pair, 16))).join(""));
+    }
   }
   return out;
+}
+
+/** `promise`, or the signal's reason as soon as `signal` fires; one listener, removed when either settles. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/** The largest block readAll() starts with; it grows by doubling, never past the limit. */
+const FIRST_BLOCK = 64 * 1024;
+
+/**
+ * A stream read whole, or a {@link BodyError} with `tooLarge` once it passes `limit` bytes. `signal` cancels the read
+ * (its reason is thrown) without waiting for the stream's own cancel to settle. The bytes are kept in one block, grown
+ * by doubling (so at most twice what was read), empty chunks skipped; the reader is released on every path.
+ */
+export async function readAll(stream: ReadableStream<Uint8Array>, limit: number, signal: AbortSignal, tooLarge: number): Promise<Uint8Array<ArrayBuffer>> {
+  const reader = stream.getReader();
+  let block = new Uint8Array(new ArrayBuffer(Math.min(limit, FIRST_BLOCK)));
+  let size = 0;
+  // Cancelling the stream ends a pending read at once, whatever its source does.
+  const stop = () => void reader.cancel(signal.reason).catch(() => undefined);
+  signal.addEventListener("abort", stop, { once: true });
+  try {
+    if (signal.aborted) throw signal.reason;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (signal.aborted) throw signal.reason;
+      if (done) break;
+      if (!(value instanceof Uint8Array)) throw new TypeError("a body chunk is not bytes");
+      if (!value.byteLength) continue;
+      if (size + value.byteLength > limit) throw new BodyError(tooLarge, "too large");
+      if (size + value.byteLength > block.length) {
+        const grown = new Uint8Array(new ArrayBuffer(Math.min(limit, Math.max(block.length * 2, size + value.byteLength))));
+        grown.set(block.subarray(0, size));
+        block = grown;
+      }
+      block.set(value, size);
+      size += value.byteLength;
+    }
+  } catch (error) {
+    void reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", stop);
+    try {
+      reader.releaseLock();
+    } catch {
+      // a runtime that refuses to release with a read pending: the stream is cancelled anyway
+    }
+  }
+  return block.subarray(0, size);
 }
 
 /** `response` with `extra` headers added (the CORS headers of an allowed origin). */
@@ -319,7 +482,13 @@ function checkOrigin(origin: string): string {
   return origin;
 }
 
-function positive(value: unknown, what: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new DreamConfigError(`${what} must be a positive number, got ${JSON.stringify(value)}`);
-  return value;
+/** The largest duration (setTimeout's) and size taken. */
+export const PROXY_MAX_OPTION = 2 ** 31 - 1;
+
+/** @throws DreamConfigError `value` is not a whole number in 1..{@link PROXY_MAX_OPTION}. */
+function whole(value: unknown, what: string): number {
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > PROXY_MAX_OPTION) {
+    throw new DreamConfigError(`${what} must be a whole number from 1 to ${PROXY_MAX_OPTION}, got ${JSON.stringify(value)}`);
+  }
+  return value as number;
 }

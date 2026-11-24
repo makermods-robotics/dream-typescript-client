@@ -214,8 +214,21 @@ const ENTITIES = new Map([["lt", "<"], ["gt", ">"], ["amp", "&"], ["quot", '"'],
 const NOT_XML_CHAR = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 const xmlChar = (c: number) => c === 0x9 || c === 0xa || c === 0xd || (c >= 0x20 && c <= 0xd7ff) || (c >= 0xe000 && c <= 0xfffd) || (c >= 0x10000 && c <= 0x10ffff);
 const child = (element: XmlElement, tag: string) => element.children.find((c) => c.tag === tag);
-/** A URDF number: NaN for an empty attribute, which Number would read as 0. */
-const number = (text: string) => (text.trim() ? Number(text) : NaN);
+/** Python's `float()` grammar: decimal digits (an underscore between two), a point, an exponent; or inf/nan. */
+const PY_FLOAT = /^[+-]?(?:(?:\d(?:_?\d)*)?\.?\d(?:_?\d)*(?:[eE][+-]?\d(?:_?\d)*)?|\d(?:_?\d)*\.(?:[eE][+-]?\d(?:_?\d)*)?|inf(?:inity)?|nan)$/i;
+
+/**
+ * A URDF number as Python's `float()` reads it (`dream.arm_file`): NaN for anything it refuses, such as `0x10`, `0b1`
+ * or an empty attribute, which `Number` would read as 16, 1 or 0. Callers then require it finite.
+ */
+export function number(text: string): number {
+  const trimmed = text.trim();
+  if (!PY_FLOAT.test(trimmed)) return NaN;
+  const lower = trimmed.toLowerCase().replace(/_/g, "");
+  if (/^[+-]?(inf|infinity)$/.test(lower)) return lower.startsWith("-") ? -Infinity : Infinity;
+  if (/^[+-]?nan$/.test(lower)) return NaN;
+  return Number(lower);
+}
 
 /**
  * dream_ik's spec of an arm from its URDF's text and an arm file's keys (`arm_file.register`): one arm, run on both
@@ -285,7 +298,7 @@ export function defineArm(file: ArmFile, urdfText: string, name = "file"): Embod
     // The solve keeps inside the margined limits (Arm.lo/hi); Python lets them cross and the solve then clips to garbage.
     if (!(lo + LIMIT_MARGIN < hi - LIMIT_MARGIN)) throw new DreamConfigError(`arm file: joint '${jointName}' has limits [${lo}, ${hi}], no range left 2 degrees inside them`);
     // No velocity, or an empty one, takes MAX_SPEED as in Python, as does 0 below.
-    const velocity = limit.velocity === undefined || !limit.velocity.trim() ? 0 : Number(limit.velocity);
+    const velocity = limit.velocity === undefined || !limit.velocity.trim() ? 0 : number(limit.velocity);
     if (!(Number.isFinite(velocity) && velocity >= 0)) throw new DreamConfigError(`arm file: joint '${jointName}' has velocity ${JSON.stringify(limit.velocity)}, not a finite number of at least 0`);
     const axis = vector(joint, "axis", "xyz", [1, 0, 0]);
     const length = Math.hypot(...axis);

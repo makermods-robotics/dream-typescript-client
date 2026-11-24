@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { DreamClient, DreamConfigError, DreamTrainingWarning, type RoundTrip } from "../src/index.js";
+import { DreamCallbackWarning, DreamClient, DreamConfigError, DreamTrainingWarning, type RoundTrip } from "../src/index.js";
 import { callService, checkServiceUrl } from "../src/internal.js";
 import { createClient } from "../src/node/index.js";
 
@@ -142,6 +142,93 @@ describe("onRoundTrip registrations", () => {
     first();
     await client.getAction();
     expect(trips).toHaveLength(3);
+    await client.close();
+  });
+});
+
+describe("hold fixes, client side", () => {
+  it("createClient(): an option given as undefined keeps the credentials' value; apiKey null asks for none", async () => {
+    const env = staging();
+    const client = createClient({ baseUrl: undefined, platformUrl: undefined, dataUrl: undefined, apiKey: undefined }, env);
+    expect([client.baseUrl, client.platformUrl, client.dataUrl]).toEqual(["https://gateway.staging.test", "https://platform.staging.test", "https://data.staging.test"]);
+    const { calls, fetch } = recording(() => Response.json([]));
+    await createClient({ fetch, apiKey: undefined }, env).getModels();
+    expect(calls[0]!.headers.Authorization).toBe(`Bearer ${KEY}`);
+    const keyless = recording(() => Response.json([]));
+    await createClient({ fetch: keyless.fetch, apiKey: null, platformUrl: "https://platform.staging.test" }, env).getModels();
+    expect(keyless.calls[0]!.headers.Authorization).toBeUndefined();
+  });
+
+  it("keeps the key out of an error's fields and causes, a warning and a round trip", async () => {
+    const { inspect } = await import("node:util");
+    const echoCode = () => Response.json({ error: { code: `bad_key_${KEY}`, message: "no" } }, { status: 400 });
+    const refused = await callService("GET", "/v1/models", { url: "https://platform.test", apiKey: KEY, fetch: recording(echoCode).fetch }).catch((e: unknown) => e);
+    expect(inspect(refused, { depth: 10 })).not.toContain(KEY);
+    const garbled = () => new Response(`{"oops": "${KEY}"`, { status: 200 });
+    const bad = await callService("GET", "/v1/models", { url: "https://platform.test", apiKey: KEY, fetch: recording(garbled).fetch }).catch((e: unknown) => e);
+    expect((bad as Error).cause).toBeUndefined();
+    expect(inspect(bad, { depth: 10 })).not.toContain(KEY);
+    // The gateway's own refusal echoing the key (escaped, too) in its envelope.
+    const escapedKey = Array.from(KEY, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`).join("");
+    const gateway = new DreamClient({
+      apiKey: KEY,
+      baseUrl: "https://gateway.test",
+      dataUrl: "https://data.test",
+      fetch: async (url) =>
+        url.endsWith("/training_data")
+          ? Response.json({ cameras: {}, prompts: [`say ${KEY}`] })
+          : new Response(`{"status":{"code":"DA-2000","reason":"${escapedKey}","detail":"${KEY}"}}`),
+      onWarning: (w) => void warnings.push(w.message),
+    });
+    const warnings: string[] = [];
+    const trips: RoundTrip[] = [];
+    gateway.onRoundTrip((trip) => void trips.push(trip));
+    await gateway.policy({ checkpoint: "dream-1-ft:0a1b2c3d-towels", strict: false });
+    gateway.setObservation({ "video.top": "Zg==" }, { prompt: "wave" }, { timestamp: 1 });
+    const error = await gateway.getAction().catch((e: unknown) => e);
+    expect(inspect(error, { depth: 10 })).not.toContain(KEY);
+    expect(warnings.join("\n")).toContain("<api key>");
+    expect(warnings.join("\n")).not.toContain(KEY);
+    expect(inspect(trips, { depth: 10 })).not.toContain(KEY);
+    expect(trips[0]!.trained.join("\n")).toContain("<api key>");
+    await gateway.close();
+  });
+
+  it("checks a service URL as written, keeps a root mount, and never shows a password", () => {
+    for (const url of ["https:gateway.test", "https:///gateway.test", "https://gateway.test:0", "https://gateway.test:65536", "https://gateway.test/a/../v1", "https://gateway.test/./x"]) {
+      expect(() => checkServiceUrl(url, "baseUrl", true), url).toThrow(DreamConfigError);
+    }
+    expect(() => checkServiceUrl("https://gateway.test/path/..", "DREAM_GATEWAY_URL", false)).toThrow(DreamConfigError);
+    expect(() => checkServiceUrl("https://gateway.test/v2", "DREAM_GATEWAY_URL", false)).toThrow(DreamConfigError);
+    const leaked = (() => {
+      try {
+        checkServiceUrl("https://me:hunter2@gateway.test/?", "baseUrl", true);
+      } catch (error) {
+        return String(error);
+      }
+      return "";
+    })();
+    expect(leaked).toContain("<userinfo>@gateway.test");
+    expect(leaked).not.toContain("hunter2");
+    expect(checkServiceUrl("https://[::1]:8443/api/", "baseUrl", true)).toBe("https://[::1]:8443/api");
+    const root = new DreamClient({ proxyUrl: "/" });
+    expect([root.baseUrl, root.platformUrl, root.dataUrl]).toEqual(["", "", ""]);
+  });
+
+  it("reports a rejected async round-trip callback as a warning, never an unhandled rejection", async () => {
+    const warnings: unknown[] = [];
+    const replies = () => Response.json({ status: { code: "DA-0001", reason: "new" }, session_id: "s", actions: {} });
+    const client = new DreamClient({ apiKey: KEY, baseUrl: "https://gateway.test", fetch: recording(replies).fetch, onWarning: (w) => void warnings.push(w) });
+    client.onRoundTrip(async () => {
+      throw new Error(`view lost ${KEY}`);
+    });
+    await client.policy({ checkpoint: "dreamlabs/dream-1-beta", strict: false });
+    client.setObservation({ "video.top": "Zg==" }, {}, { timestamp: 1 });
+    await client.getAction();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toBeInstanceOf(DreamCallbackWarning);
+    expect((warnings[0] as Error).message).toBe("an onRoundTrip() callback's promise was rejected: view lost <api key>");
     await client.close();
   });
 });

@@ -9,7 +9,7 @@ export const PAGES: Record<string, [string, string]> = {
 };
 
 /** Answers one of {@link PAGES}: the file is read before the status is written, so a missing one is a plain 404. */
-export async function servePage(path: string, response: ServerResponse, root: URL = new URL(".", import.meta.url)): Promise<void> {
+export async function servePage(path: string, response: ServerResponse, root: URL = new URL(".", import.meta.url), headers: Record<string, string> = {}): Promise<void> {
   const page = PAGES[path]!;
   let body: Buffer;
   try {
@@ -18,5 +18,13 @@ export async function servePage(path: string, response: ServerResponse, root: UR
     response.writeHead(404, { "Content-Type": "text/plain" }).end(`build the page first: ${page[0]} is missing (see README.md)`);
     return;
   }
-  response.writeHead(200, { "Content-Type": page[1] }).end(body);
+  response.writeHead(200, { ...headers, "Content-Type": page[1] }).end(body);
+}
+
+/** The sign-in cookie's name: the page gets it, and only requests that carry it are forwarded. */
+export const SESSION_COOKIE = "dream_proxy_session";
+
+/** Whether `cookieHeader` carries the session cookie with `token`. */
+export function hasSession(cookieHeader: string | null, token: string): boolean {
+  return (cookieHeader ?? "").split(";").some((part) => part.trim() === `${SESSION_COOKIE}=${token}`);
 }

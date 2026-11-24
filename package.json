@@ -50,7 +50,8 @@
     "fidelity": "node scripts/fidelity.mjs",
     "fixtures": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_fixtures.py",
     "fixtures:check": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_fixtures.py --check-unpatched",
-    "casefold": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_casefold.py",
+    "limit-stop": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/replay_limit_stop.py",
+    "unicode": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_unicode.py",
     "arms": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_arms.py"
   },
   "devDependencies": {

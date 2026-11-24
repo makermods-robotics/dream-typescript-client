@@ -35,7 +35,7 @@ import {
 } from "./client.js";
 import { checkServiceUrl, DEFAULT_DATA_URL, DEFAULT_GATEWAY_URL, DEFAULT_PLATFORM_URL } from "./credentials.js";
 import { parseEmbodiment, type EmbodimentConfig, type ShapeSpec } from "./embodiment.js";
-import { DreamCancelled, DreamConfigError, DreamError, DreamProtocolError, DreamTrainingWarning, detail, type DreamWarning } from "./errors.js";
+import { DreamCallbackWarning, DreamCancelled, DreamConfigError, DreamError, DreamProtocolError, DreamTrainingWarning, detail, type DreamWarning } from "./errors.js";
 import { listModels, scrub, type CheckpointId, type Model, type ServiceOptions } from "./models.js";
 import { FINE_TUNE_PREFIX, fetchTrainedInputs, trainedNotes, type TrainedInputs } from "./trained-inputs.js";
 import type { Kinematics } from "./seam-join.js";
@@ -416,8 +416,9 @@ export class DreamClient {
    * Calls `fn` after every getAction() that built its observation from the window, with what the model was sent and
    * what came back, a {@link RoundTrip}, whether the call returned or threw, a refusal before anything was sent
    * included (`DreamClient.on_round_trip`): for a page of what the model sees, or your own logs.
-   * Each `fn` runs in the order added, before getAction() returns; as in Python, what `fn` throws is thrown out of
-   * getAction() (after the call's own outcome is settled), so keep it from throwing.
+   * Each `fn` runs synchronously, in the order added, before getAction() returns; as in Python, what `fn` throws is
+   * thrown out of getAction() (after the call's own outcome is settled), so keep it from throwing. A promise `fn`
+   * returns is not waited for: its rejection is handed to `onWarning` as a {@link DreamCallbackWarning}.
    *
    * @returns Not in Python: a function that removes this registration of `fn` (another registration of the same
    *   function stays); calling it again does nothing.
@@ -579,7 +580,16 @@ export class DreamClient {
   }
 
   private handOver(trip: RoundTrip): void {
-    for (const { fn } of [...this.#roundTripFns]) fn(trip);
+    for (const { fn } of [...this.#roundTripFns]) {
+      const result = fn(trip);
+      // Synchronous by contract; a promise it returns is not waited for, and its rejection is a warning, never an
+      // unhandled rejection.
+      if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
+        (result as PromiseLike<unknown>).then(undefined, (error: unknown) =>
+          this.warn(new DreamCallbackWarning(scrub(`an onRoundTrip() callback's promise was rejected: ${error instanceof Error ? error.message : String(error)}`, this.#apiKey))),
+        );
+      }
+    }
   }
 
   /**
@@ -608,7 +618,8 @@ export class DreamClient {
     const frames = Object.fromEntries([...frameKeys].map((key) => [key, sent[key] as string[]]));
     let lines: string[];
     try {
-      lines = trainedNotes(this.#trained.inputs, this.#trained.checkpoint, frames, sent.prompt);
+      // The lines quote the training record: never with the key in them, in a warning or a round trip.
+      lines = trainedNotes(this.#trained.inputs, this.#trained.checkpoint, frames, sent.prompt).map((line) => scrub(line, this.#apiKey));
     } catch {
       // Only ever a warning: whatever the record holds, the call goes on.
       return [];

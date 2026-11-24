@@ -91,30 +91,49 @@ export function resolveCredentials(
   };
 }
 
+/** An absolute service URL as written: scheme, host (a DNS name, IPv4, or bracketed IPv6), optional port, path. */
+const SERVICE_URL = /^(https?):\/\/([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*|\[[0-9A-Fa-f:.]+\])(?::(\d{1,5}))?(\/.*)?$/i;
+/** A path segment: unreserved, sub-delims, `:`, `@` and percent-escapes; never `.` or `..`. */
+const SEGMENT = /^(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-Fa-f]{2})*$/;
+
+/** A URL for a message: anything before an `@` in its authority (a user name, a password) left out. */
+export function redactUrl(url: string): string {
+  return String(url).replace(/^([A-Za-z][A-Za-z0-9+.-]*:\/*)[^/?#@]*@/, "$1<userinfo>@");
+}
+
 /**
  * Checks a service URL. Credentials name `http(s)://<host>[:<port>]` with no path (`credentials._check_url`); a
  * client's `baseUrl` may also carry a path (a proxy mount such as `/api/dream`) or be relative to the page
- * (`allowPath`), and the requests go to `<baseUrl>/v1/...`. A query or fragment marker (even an empty `?` or `#`),
- * a user name or password in the URL, or any scheme but http(s) is refused: appending `/v1/...` must stay in the path.
+ * (`allowPath`; `/` and `""` are the page's root), and the requests go to `<baseUrl>/v1/...`. The URL is checked as
+ * written, before any normalisation: a query or fragment marker (even an empty `?` or `#`), a user name or password,
+ * a missing `//` or host (`https:host`, `https:///host`), a `.` or `..` segment, a port outside 1..65535, or any scheme
+ * but http(s) is refused. Messages never show a user name or password.
  *
- * @returns The URL as parsed: its origin (and, with `allowPath`, its path), without a trailing slash; a relative
- *   path as given, without a trailing slash.
+ * @returns The URL as parsed: its origin (and, with `allowPath`, its path), without a trailing slash; a relative path
+ *   as given, without a trailing slash (`""` for the root).
  */
 export function checkServiceUrl(url: string, what: string, allowPath: boolean): string {
-  if (typeof url !== "string" || !url) throw new DreamConfigError(`${what} must be a URL, got ${JSON.stringify(url)}`);
-  const shape = `${what} must be http(s)://<host>[:<port>]${allowPath ? "[/<path>]" : " with no path"}, with no query, fragment or user name, e.g. https://api.example.com, got ${JSON.stringify(url)}`;
-  if (/[?#\s\\]/.test(url)) throw new DreamConfigError(shape);
-  const trimmed = url.replace(/\/+$/, "");
-  if (allowPath && (trimmed === "" || (trimmed.startsWith("/") && !trimmed.startsWith("//")))) return trimmed;
+  if (typeof url !== "string" || (!url && !allowPath)) throw new DreamConfigError(`${what} must be a URL, got ${JSON.stringify(typeof url === "string" ? url : String(url))}`);
+  const shape = () =>
+    new DreamConfigError(
+      `${what} must be http(s)://<host>[:<port>]${allowPath ? "[/<path>] or a path such as /api/dream" : " with no path"}, with no query, fragment, ` +
+        `user name or dot segments, e.g. https://api.example.com, got ${JSON.stringify(redactUrl(url))}`,
+    );
+  const pathOk = (path: string) => path.split("/").slice(1).every((segment, i, all) => SEGMENT.test(segment) && segment !== "." && segment !== ".." && (segment !== "" || i === all.length - 1));
+  if (allowPath && (url === "" || url.startsWith("/"))) {
+    if (url !== "" && (url.startsWith("//") || !pathOk(url))) throw shape();
+    return url.replace(/\/+$/, "");
+  }
+  const match = SERVICE_URL.exec(url);
+  if (!match) throw shape();
+  const [, , , port, path = ""] = match;
+  if (port !== undefined && !(Number(port) >= 1 && Number(port) <= 65535)) throw shape();
+  if (allowPath ? path !== "" && !pathOk(path) : path !== "" && path !== "/") throw shape();
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    throw new DreamConfigError(`${what} is not a URL: ${JSON.stringify(url)}`);
-  }
-  const pathless = parsed.pathname === "" || parsed.pathname === "/";
-  if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || (!allowPath && !pathless)) {
-    throw new DreamConfigError(shape);
+    throw shape();
   }
   return allowPath ? `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}` : parsed.origin;
 }
@@ -131,4 +150,21 @@ export function authorization(apiKey: string): Record<string, string> {
     );
   }
   return { Authorization: `Bearer ${apiKey}` };
+}
+
+/** `text` with the key cut out: a service that echoes the request must not put the key in a message or a log. */
+export function scrub(text: string, secret: string | null | undefined): string {
+  return secret ? text.split(secret).join("<api key>") : text;
+}
+
+/** A decoded JSON value with the key cut out of every object key and string ({@link scrub}). */
+export function scrubJson<T>(value: T, secret: string | null | undefined): T {
+  if (!secret) return value;
+  const walk = (node: unknown): unknown => {
+    if (typeof node === "string") return scrub(node, secret);
+    if (Array.isArray(node)) return node.map(walk);
+    if (typeof node === "object" && node !== null) return Object.fromEntries(Object.entries(node).map(([key, item]) => [scrub(key, secret), walk(item)]));
+    return node;
+  };
+  return walk(value) as T;
 }

@@ -14,7 +14,7 @@
  * (`RoundTrip.trained`). Only a fine-tune's id ({@link FINE_TUNE_PREFIX}) is looked up.
  */
 
-import { FOLD_MULTI, FOLD_RUNS } from "./casefold.data.js";
+import { FOLD_MULTI, FOLD_RUNS, UNPRINTABLE } from "./unicode.data.js";
 import { DreamServerError } from "./errors.js";
 import { callService, type ServiceOptions } from "./models.js";
 
@@ -61,7 +61,8 @@ export async function fetchTrainedInputs(checkpoint: string, options: ServiceOpt
  * must never stop a policy (Python would fail getAction() on it).
  */
 export function checkedTrainedInputs(found: { cameras: unknown; prompts: unknown }): TrainedInputs {
-  const cameras: Record<string, number[][]> = {};
+  // No prototype: a camera role named `__proto__` is a role like any other.
+  const cameras: Record<string, number[][]> = Object.create(null);
   if (typeof found.cameras === "object" && found.cameras !== null && !Array.isArray(found.cameras)) {
     for (const [role, sizes] of Object.entries(found.cameras)) {
       if (!Array.isArray(sizes)) continue;
@@ -146,6 +147,8 @@ for (const [i, c] of [..."ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01
  * error, and for a non-ASCII character (Python's ValueError).
  */
 export function b64decode(text: string): Uint8Array | null {
+  // Python refuses a str with any non-ASCII character before decoding a byte of it, past the padding too.
+  if (/[^\x00-\x7f]/.test(text)) return null;
   const out = new Uint8Array(Math.floor((text.length * 3) / 4) + 3);
   let length = 0;
   let quad = 0;
@@ -153,7 +156,6 @@ export function b64decode(text: string): Uint8Array | null {
   let pads = 0;
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    if (code > 0x7f) return null;
     if (code === 0x3d) {
       if (quad >= 2 && quad + ++pads >= 4) {
         quad = 0;
@@ -185,7 +187,7 @@ export function plain(text: string): string {
 
 let folds: Map<number, string> | null = null;
 
-/** Python's `str.casefold()`: full Unicode case folding, from Python's own table (`src/casefold.data.ts`). */
+/** Python's `str.casefold()`: full Unicode case folding, from Python's own table (`src/unicode.data.ts`). */
 export function casefold(text: string): string {
   if (!folds) {
     folds = new Map(FOLD_MULTI);
@@ -280,8 +282,18 @@ export function fixed2(x: number): string {
   return x.toFixed(2);
 }
 
-/** What Python's `str.isprintable()` refuses: control, format, surrogate, private, unassigned and separator characters. */
-const NOT_PRINTABLE = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}\p{Zs}]/u;
+/** Whether Python's `str.isprintable()` refuses the code point, by the reference Python's table (`src/unicode.data.ts`). */
+export function unprintable(cp: number): boolean {
+  let lo = 0;
+  let hi = UNPRINTABLE.length / 2 - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (cp < UNPRINTABLE[2 * mid]!) hi = mid - 1;
+    else if (cp > UNPRINTABLE[2 * mid + 1]!) lo = mid + 1;
+    else return true;
+  }
+  return false;
+}
 
 /** Python's `repr()` of a str. */
 export function pyRepr(text: string): string {
@@ -293,7 +305,7 @@ export function pyRepr(text: string): string {
     else if (c === "\n") out += "\\n";
     else if (c === "\r") out += "\\r";
     else if (c === "\t") out += "\\t";
-    else if (c !== " " && NOT_PRINTABLE.test(c)) {
+    else if (unprintable(code)) {
       const hex = code.toString(16);
       out += code <= 0xff ? `\\x${hex.padStart(2, "0")}` : code <= 0xffff ? `\\u${hex.padStart(4, "0")}` : `\\U${hex.padStart(8, "0")}`;
     } else out += c;

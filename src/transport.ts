@@ -7,7 +7,7 @@
  * to the next one.
  */
 
-import { authorization } from "./credentials.js";
+import { authorization, scrubJson } from "./credentials.js";
 import { DreamCancelled, DreamConfigError, DreamError, DreamProtocolError, DreamTimeout, detail } from "./errors.js";
 import { CLIENT_VERSION } from "./version.js";
 
@@ -201,12 +201,11 @@ export class Transport {
     // A reply read after the abort fired (a fetch that ignores its signal) is not the answer: the caller has moved on.
     if (ended) throw this.aborted(ended);
     try {
-      return JSON.parse(raw);
-    } catch (error) {
-      throw new DreamProtocolError(
-        `inference reply from ${this.baseUrl} is not JSON (HTTP ${status}); is the correct DreamAPI gateway running there?`,
-        { cause: error },
-      );
+      // Every key and string without the key: a reply that echoes the request must not hand it to an error's fields.
+      return scrubJson(JSON.parse(raw), this.#secret);
+    } catch {
+      // No cause: the parser's message quotes the reply.
+      throw new DreamProtocolError(`inference reply from ${this.baseUrl} is not JSON (HTTP ${status}); is the correct DreamAPI gateway running there?`);
     }
   }
 

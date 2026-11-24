@@ -176,5 +176,13 @@ export class DreamTrainingWarning extends Error {
   override name = "DreamTrainingWarning";
 }
 
+/**
+ * Not an error: a promise an `onRoundTrip()` callback returned was rejected. The callbacks are synchronous: what one
+ * throws is thrown out of getAction(), but a promise it returns is not waited for, and its rejection is reported here.
+ */
+export class DreamCallbackWarning extends Error {
+  override name = "DreamCallbackWarning";
+}
+
 /** What a client hands its `onWarning`. */
-export type DreamWarning = DreamSlowNetworkWarning | DreamTrainingWarning;
+export type DreamWarning = DreamSlowNetworkWarning | DreamTrainingWarning | DreamCallbackWarning;

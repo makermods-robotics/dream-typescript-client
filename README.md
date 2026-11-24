@@ -117,13 +117,20 @@ needs and strict mode uses.
 `createDreamProxy(options)` from `@makermods/dreamlabs/proxy` returns a standard fetch handler,
 `(request: Request) => Promise<Response>`: `export default { fetch }` on Cloudflare Workers and Bun,
 `Deno.serve(handler)`, and on Node 22 `createServer(nodeHandler(handler))` with `nodeHandler` from
-`@makermods/dreamlabs/node`. It forwards only what the client calls, under `basePath`:
+`@makermods/dreamlabs/node`. Every option is read and checked when it is created; changing the options object later
+changes nothing. It forwards only what the client calls, under `basePath`:
 
 | Request                                                  | Goes to                                     |
 | -------------------------------------------------------- | ------------------------------------------- |
 | `POST /v1/get_action`, `POST /v1/end_session`             | the gateway (`gatewayUrl`, `DREAM_GATEWAY_URL`) |
 | `GET /v1/models`                                          | the platform (`platformUrl`, `DREAM_API_URL`) |
-| `GET /v1/fine_tuning/models/<fine-tune>/training_data`    | the data service (`dataUrl`, `DREAM_DATA_URL`), only for a `dream-1-ft:` id |
+| `GET /v1/fine_tuning/models/<fine-tune>/training_data`    | the data service (`dataUrl`, `DREAM_DATA_URL`), only for a published fine-tune id, `dream-1-ft:<8 of a-z0-9>-<1 to 40 of a-z0-9->`; any other `dream-1-ft:` id is answered `404 not_found` without a lookup |
+
+**Runtimes.** Two platform limits sit in front of the proxy's own `timeoutMs` (70 s), which a valid inference behind a
+cold model can use: Bun's server closes a request idle for 10 s by default, so serve it with `Bun.serve({ fetch:
+handler, idleTimeout: 0 })` (or above 70); and a Cloudflare Worker sees a client disconnect (the request's `signal`,
+which stops the upstream call) only with the `enable_request_signal` compatibility flag, or a compatibility date recent
+enough to turn it on by default (Cloudflare's compatibility-flags page names it). On Node, `nodeHandler` aborts the signal itself when the client disconnects.
 
 ```ts
 createDreamProxy({
@@ -143,15 +150,25 @@ createDreamProxy({
 })
 ```
 
-Bodies and upstream statuses pass through unchanged (DreamAPI reports every outcome in the body's status envelope;
-a 204, 205 or 304 has no body); the answer carries only `Content-Type`, `Cache-Control: no-store` and the CORS
-headers, and an answer that contains the key is withheld (502). **The client identity sent upstream is the proxy's,
+Upstream statuses pass through unchanged (DreamAPI reports every outcome in the body's status envelope; a 204, 205
+or 304 has no body), and the answer carries only `Content-Type`, `Cache-Control: no-store` and the CORS headers. **The
+answer is parsed and written anew, never passed through**, and only in the shape its route produces: for get_action
+and end_session the `status` envelope (`code`, `name`, `reason`, `retryable`, `retry_after_s`, `detail`, `trace_id`),
+`session_id`, `actions` and `timing`; for the models list each model's fields the client reads; for training data
+`cameras` and `prompts`; for a platform or data-service refusal `{ error: { code, message } }`. An answer that is not
+JSON, or not of that shape, is withheld (502, `upstream answer withheld`), and so is one in which any object key or
+string carries the key (and so `Bearer <key>`), as written or decoded from `\uXXXX` escapes, percent-encoding, or any
+run of base64, base64url or hex, at every alignment, two levels deep. That is the guarantee: the key does not leave in
+those forms; a key split across strings or otherwise transformed is not detected. **The client identity sent upstream is the proxy's,
 never the caller's:** `Dream-Client-Version: <clientVersion>` and `User-Agent: dream-client/<clientVersion>
 <instance>` on the POSTs (the instance from the client's `Dream-Client-Instance`, or the one a non-browser client's
 `User-Agent` names), and `User-Agent: dream-client/<clientVersion>` on the GETs. The version decides whether the
 gateway serves checkpoints whose robot has parts, so a page must not choose it: set `clientVersion` only on a server
 whose clients convert parts. A caller's `Authorization`, cookies and other headers are dropped. A request with an
 `Origin` not in `allowedOrigins` is refused (403), and a page served from the proxy's own origin must be listed too.
+So is one whose Fetch Metadata says `Sec-Fetch-Site: cross-site` without an allowed `Origin` (a navigation or a no-CORS
+load from another site, which carries no `Origin`), and a GET without `Dream-Client-Version` (400): the client always
+sends it through a proxy, and another site's page cannot add it to a link, an image or a form.
 Redirects are not followed, and the key is never logged or put in an error. A caller that disconnects or cancels
 (the request's `signal`) stops the upstream call, and nothing is sent for one that cancelled during `authorize`.
 
@@ -191,8 +208,9 @@ client.close(): Promise<void>
 (not before the first setObservation() of an episode), returned or threw, a local refusal before sending included, with a
 frozen `RoundTrip`: `sentS` (epoch seconds), `frames` (per frame key, the base64 JPEGs sent, oldest first),
 `observation` (every other key sent), `action` (null when it threw), `timing` (`lastTiming` after the call), `error`
-(the `DreamError`, null when it returned) and `trained` (below). As in Python, what `fn` throws is thrown out of
-getAction(). It returns a function that removes that registration (TS-only; idempotent, and a function added twice
+(the `DreamError`, null when it returned) and `trained` (below). Callbacks are synchronous: as in Python, what `fn`
+throws is thrown out of getAction(); a promise it returns is not waited for, and its rejection goes to `onWarning` as a
+`DreamCallbackWarning`. It returns a function that removes that registration (TS-only; idempotent, and a function added twice
 stays registered once).
 
 **What a fine-tune was trained on.** For a checkpoint that is one of your fine-tunes (`dream-1-ft:...`), policy()
@@ -423,6 +441,8 @@ These differences are deliberate:
   the credentials file, because a browser has no file. In Node, `createClient()` reads the file.
 - **Training-input lines** list the cameras in the order the episode's frames were first set; Python iterates a set,
   whose order varies from run to run.
+- **URDF numbers** are read as Python's `float()` reads them (`0x10` is refused, `1_0` is 10), then must be finite. A
+  negative joint velocity is refused; Python takes it as the 3 rad/s cap, as it does 0.
 - **Malformed training records** (a camera size that is not a finite positive width and height, a prompt that is not
   a string) are left out of the comparison; Python fails getAction() on them.
 - **JSON safety.** `NaN`, `Infinity`, `undefined`, bigints, binary data, `Map`, `Set` and class instances in an
@@ -499,10 +519,12 @@ measured value. Lengths are tool (TCP) positions; angles are joint differences o
   within the margined limits and the speed caps; one- and two-row horizons solve; a one-row remainder after a seam
   holds; and every returned row of a `DreamClient` run stays within the caps and limits across seams, the next seam
   continuing from what was returned.
-- **IK at a joint limit** (`test/ik.test.ts`, `limit_stop.json`): a two-arm SO-101 chunk recorded on hardware, the
-  left lift at its margined lower limit, where dream_ik's own traj solve stops early (see
-  [Where this differs from Python](#where-this-differs-from-python)). Both arms are held to the same solve run to
-  convergence in float64 (2.73e-4 rad); dream_ik's own answer is 0.0201 rad from it.
+- **IK at a joint limit** (`test/ik.test.ts`, `limit_stop.json`): a two-arm SO-101 chunk recorded on hardware with
+  `dreamlabs` 1.0.17 / `dreamlabs-client` 1.0.8, the left lift at its margined lower limit, where dream_ik's own traj
+  solve stops early (see [Where this differs from Python](#where-this-differs-from-python)). Both arms are held to the
+  same solve run to convergence in float64 (2.73e-4 rad), which `npm run limit-stop` replays offline against the
+  installed `dreamlabs` (1.0.42: within 2.2e-14 rad of the recording); dream_ik's own answer, 0.0201 rad from it, is
+  kept as recorded, since where it stops turns on float rounding.
 - **End to end** (`test/wire.test.ts`): the requests of `dream.DreamClient` 1.1.7 replayed: path, headers (all but
   `Dream-Client-Version` and the `User-Agent`'s version, by design), and every number of the JSON body (Python's tool
   poses are float32); the training-data lookups; its returned actions, and where client IK runs, the arms' joints
@@ -568,7 +590,8 @@ npm run typecheck     # tsc on src, tests, examples; then src without Node types
 npm test              # vitest
 npm run build         # tsc -> dist/ with .d.ts and source maps
 npm run arms          # regenerate src/ik/arms.data.ts from dream_ik
-npm run casefold      # regenerate src/casefold.data.ts, Python's str.casefold() table
+npm run limit-stop    # replay limit_stop.json's converged solve against the installed dreamlabs, offline
+npm run unicode       # regenerate src/unicode.data.ts, Python's casefold() and isprintable() tables
 npm run fixtures      # regenerate test/fixtures/*.json from the Python packages (a few minutes; JAX compiles)
 npm run fixtures:check # bound what the jaxls sort patch changes in ik.json (a few minutes)
 ```

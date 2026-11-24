@@ -3,7 +3,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { servePage } from "../examples/browser-proxy/static.ts";
+import { hasSession, SESSION_COOKIE, servePage } from "../examples/browser-proxy/static.ts";
 
 let server: Server | null = null;
 afterEach(() => new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve())));
@@ -27,5 +27,11 @@ describe("examples/browser-proxy", () => {
     } finally {
       await new Promise<void>((resolve) => empty.close(() => resolve()));
     }
+  });
+
+  it("signs a request in only with the session cookie the page was served", () => {
+    expect(hasSession(`a=1; ${SESSION_COOKIE}=abc`, "abc")).toBe(true);
+    expect(hasSession(`${SESSION_COOKIE}=abcd`, "abc")).toBe(false);
+    expect(hasSession(null, "abc")).toBe(false);
   });
 });

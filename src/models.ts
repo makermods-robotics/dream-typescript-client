@@ -3,7 +3,9 @@
  * plus the JSON call the platform and the data service share (`dream.datasets._call`).
  */
 
-import { API_KEY_ENV, authorization, KEY_PER_SITE } from "./credentials.js";
+import { API_KEY_ENV, authorization, KEY_PER_SITE, scrub, scrubJson } from "./credentials.js";
+
+export { scrub };
 import { DreamAuthError, DreamConfigError, DreamProtocolError, DreamServerError } from "./errors.js";
 import { cancelled, inBrowser, type FetchLike } from "./transport.js";
 import { CLIENT_VERSION } from "./version.js";
@@ -113,17 +115,16 @@ export async function callService(method: string, path: string, options: Service
   }
 }
 
-/** `text` with the key cut out: a service that echoes the request must not put the key in a message or a log. */
-export function scrub(text: string, secret: string | null | undefined): string {
-  return secret ? text.split(secret).join("<api key>") : text;
-}
 
 function answer(status: number, text: string, url: string, secret: string | null | undefined): unknown {
   let decoded: unknown = null;
   try {
-    decoded = text ? JSON.parse(text) : null;
-  } catch (error) {
-    throw new DreamProtocolError(`the Dream service at ${url} answered ${status}, not with JSON`, { cause: error });
+    // Every key and string of the answer without the key: a service that echoes the request must not hand it to a
+    // field of an error, a model record or a log.
+    decoded = text ? scrubJson(JSON.parse(text), secret) : null;
+  } catch {
+    // No cause: the parser's message quotes the answer.
+    throw new DreamProtocolError(`the Dream service at ${url} answered ${status}, not with JSON`);
   }
   if (status < 400) return decoded;
   const envelope = isRecord(decoded) && isRecord(decoded.error) ? decoded.error : null;

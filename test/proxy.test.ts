@@ -8,7 +8,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { CLIENT_VERSION, DreamClient, DreamConfigError } from "../src/index.js";
 import { nodeHandler } from "../src/node/index.js";
-import { createDreamProxy, type DreamProxyOptions } from "../src/proxy.js";
+import { createDreamProxy, readAll, type DreamProxyOptions } from "../src/proxy.js";
 
 const KEY = "dk_secret_proxy_key";
 const PAGE = "https://app.example.com";
@@ -49,6 +49,9 @@ function proxy(options: Partial<DreamProxyOptions> = {}, mock = upstream()) {
   });
   return { handler, ...mock };
 }
+
+/** A GET as the client sends it through a proxy: with Dream-Client-Version. */
+const get = (url: string, headers: Record<string, string> = {}) => new Request(url, { headers: { "Dream-Client-Version": CLIENT_VERSION, ...headers } });
 
 const post = (path: string, body: string, headers: Record<string, string> = {}) =>
   new Request(`https://app.example.com/api/dream${path}`, { method: "POST", body, headers: { "Content-Type": "application/json", ...headers } });
@@ -132,7 +135,7 @@ describe("createDreamProxy", () => {
 
   it("forwards the models list to the platform and a fine-tune's training data to the data service, as GETs", async () => {
     const { handler, seen } = proxy({}, upstream(() => Response.json([{ id: "m" }], { status: 200 })));
-    const models = await handler(new Request("https://app.example.com/api/dream/v1/models"));
+    const models = await handler(get("https://app.example.com/api/dream/v1/models"));
     expect(await models.json()).toEqual([{ id: "m" }]);
     expect(seen[0]).toEqual({
       url: "https://platform.test/v1/models",
@@ -140,7 +143,7 @@ describe("createDreamProxy", () => {
       body: "",
       headers: { authorization: `Bearer ${KEY}`, accept: "application/json", "user-agent": `dream-client/${CLIENT_VERSION}` },
     });
-    await handler(new Request("https://app.example.com/api/dream/v1/fine_tuning/models/dream-1-ft%3A0a1b2c3d-towels/training_data"));
+    await handler(get("https://app.example.com/api/dream/v1/fine_tuning/models/dream-1-ft%3A0a1b2c3d-towels/training_data"));
     expect(seen[1]!.url).toBe("https://data.test/v1/fine_tuning/models/dream-1-ft%3A0a1b2c3d-towels/training_data");
     expect(seen[1]!.headers["user-agent"]).toBe(`dream-client/${CLIENT_VERSION}`);
   });
@@ -148,7 +151,7 @@ describe("createDreamProxy", () => {
   it("refuses every other route and method, and a training-data path that is not a fine-tune's", async () => {
     const { handler, seen } = proxy();
     for (const path of ["/v1/start_session", "/v1/models/x", "/v2/get_action", "/v1/fine_tuning/models/dreamlabs%2Fdream-1-beta/training_data", "/v1/fine_tuning/models/dream-1-ft%3Aa%2F..%2Fb/training_data", "/v1/fine_tuning/jobs"]) {
-      expect((await handler(new Request(`https://app.example.com/api/dream${path}`))).status, path).toBe(404);
+      expect((await handler(get(`https://app.example.com/api/dream${path}`))).status, path).toBe(404);
     }
     expect((await handler(new Request("https://app.example.com/other/v1/models"))).status).toBe(404);
     const wrong = await handler(new Request("https://app.example.com/api/dream/v1/get_action"));
@@ -180,9 +183,9 @@ describe("createDreamProxy", () => {
   });
 
   it("refuses a host it does not answer to (DNS rebinding)", async () => {
-    const { handler, seen } = proxy({ allowedHosts: ["app.example.com"] });
-    expect((await handler(new Request("https://rebound.example/api/dream/v1/models"))).status).toBe(421);
-    expect((await handler(new Request("https://APP.example.com/api/dream/v1/models"))).status).toBe(200);
+    const { handler, seen } = proxy({ allowedHosts: ["app.example.com"] }, upstream(() => Response.json([])));
+    expect((await handler(get("https://rebound.example/api/dream/v1/models"))).status).toBe(421);
+    expect((await handler(get("https://APP.example.com/api/dream/v1/models"))).status).toBe(200);
     expect(seen).toHaveLength(1);
   });
 
@@ -442,5 +445,184 @@ describe("nodeHandler", () => {
     for (let i = 0; i < 200 && received < 0; i++) await new Promise((resolve) => setTimeout(resolve, 10));
     expect(received).toBeGreaterThan(0);
     expect(received).toBeLessThan(size / 2);
+  });
+});
+
+describe("createDreamProxy, hardened", () => {
+  const SECRET = "dk_SYNTHETIC_secret_7f3a9c";
+  const b64 = (text: string) => btoa(text);
+  const b64url = (text: string) => btoa(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const hex = (text: string) => Array.from(text, (c) => c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+  const escaped = (text: string) => Array.from(text, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`).join("");
+  const answering = (body: string, extra: Partial<DreamProxyOptions> = {}) => {
+    const mock = upstream(() => new Response(body, { status: 200 }));
+    return { ...mock, handler: createDreamProxy({ apiKey: SECRET, allowedHosts: "any", fetch: mock.fetch, ...extra }) };
+  };
+
+  it("withholds an answer that carries the key in any encoding it checks", async () => {
+    const carriers = [
+      `{"status":{"code":"DA-0000","detail":"${SECRET}"}}`,
+      `{"status":{"code":"DA-0000"},"actions":{"note":"${b64(SECRET)}"}}`,
+      `{"status":{"code":"DA-0000"},"actions":{"note":"${b64(`Authorization: Bearer ${SECRET}`)}"}}`,
+      `{"status":{"code":"DA-0000"},"actions":{"note":"xy${b64(`Bearer ${SECRET}`)}"}}`,
+      `{"status":{"code":"DA-0000"},"actions":{"note":"${b64url(SECRET)}"}}`,
+      `{"status":{"code":"DA-0000"},"actions":{"note":"${escaped(SECRET)}"}}`,
+      `{"status":{"code":"DA-0000"},"actions":{"note":"{\\"k\\":\\"${escaped(SECRET).replace(/\\/g, "\\\\")}\\"}"}}`,
+      `{"status":{"code":"DA-0000"},"actions":{"note":"${encodeURIComponent(SECRET).replace(/_/g, "%5F")}"}}`,
+      `{"status":{"code":"DA-0000"},"actions":{"note":"${hex(SECRET)}"}}`,
+      `{"status":{"code":"DA-0000"},"actions":{"${SECRET}":1}}`,
+      `{"status":{"code":"DA-0000"},"actions":{"note":"${b64(b64(SECRET))}"}}`,
+    ];
+    for (const body of carriers) {
+      const { handler } = answering(body);
+      const reply = await handler(new Request("http://proxy.test/v1/get_action", { method: "POST", body: "{}" }));
+      const text = await reply.text();
+      expect(reply.status, body).toBe(502);
+      expect(JSON.parse(text), body).toEqual({ proxy_error: "upstream answer withheld" });
+      expect(text).not.toContain(SECRET);
+    }
+  });
+
+  it("returns only answers of the route's shape, written anew", async () => {
+    const gateway = answering(`{"status":{"code":"DA-0000","name":"ok","\\u0072eason":null,"extra":1},"session_id":"s","actions":{"q_r_chunk":[[0.5]]},"timing":{"gateway_ms":3},"leak":"x"}`);
+    const reply = await gateway.handler(new Request("http://proxy.test/v1/get_action", { method: "POST", body: "{}" }));
+    expect(reply.status).toBe(200);
+    expect(await reply.text()).toBe('{"status":{"code":"DA-0000","name":"ok","reason":null},"session_id":"s","actions":{"q_r_chunk":[[0.5]]},"timing":{"gateway_ms":3}}');
+    for (const [body, path] of [
+      ["<html>bad gateway</html>", "/v1/get_action"],
+      ['{"actions":{}}', "/v1/get_action"],
+      ['{"status":{"code":1}}', "/v1/end_session"],
+      ['{"status":{"code":"DA-0000"},"timing":{"gateway_ms":"3"}}', "/v1/get_action"],
+      ['{"id":"m"}', "/v1/models"],
+      ['[{"name":"m"}]', "/v1/models"],
+      ['"text"', "/v1/fine_tuning/models/dream-1-ft%3A0a1b2c3d-towels/training_data"],
+    ] as const) {
+      const { handler } = answering(body);
+      const request = path.startsWith("/v1/get_action") || path === "/v1/end_session" ? new Request(`http://proxy.test${path}`, { method: "POST", body: "{}" }) : get(`http://proxy.test${path}`);
+      expect((await handler(request)).status, `${path} ${body}`).toBe(502);
+    }
+    const models = answering('[{"id":"m","owner":"mine","cameras":null,"secret_field":"dropped"}]');
+    expect(await (await models.handler(get("http://proxy.test/v1/models"))).json()).toEqual([{ id: "m", owner: "mine", cameras: null }]);
+    const refusal = createDreamProxy({ apiKey: SECRET, allowedHosts: "any", fetch: async () => Response.json({ error: { code: "not_found", message: "no", trace: 1 } }, { status: 404 }) });
+    const refused = await refusal(get("http://proxy.test/v1/fine_tuning/models/dream-1-ft%3A0a1b2c3d-towels/training_data"));
+    expect(refused.status).toBe(404);
+    expect(await refused.json()).toEqual({ error: { code: "not_found", message: "no" } });
+  });
+
+  it("refuses a browser's cross-site GET, which carries no Origin, and a GET without the client's header", async () => {
+    const { handler, seen } = proxy({}, upstream(() => Response.json([])));
+    const navigation = new Request("https://app.example.com/api/dream/v1/models", { headers: { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate" } });
+    expect((await handler(navigation)).status).toBe(403);
+    const forged = get("https://app.example.com/api/dream/v1/models", { "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors" });
+    expect((await handler(forged)).status).toBe(403);
+    // A page of an allowed origin may still ask cross-site (CORS, with its Origin).
+    expect((await handler(get("https://app.example.com/api/dream/v1/models", { "Sec-Fetch-Site": "cross-site", Origin: PAGE }))).status).toBe(200);
+    const bare = await handler(new Request("https://app.example.com/api/dream/v1/models"));
+    expect(bare.status).toBe(400);
+    expect(seen).toHaveLength(1);
+    // A native client (no Fetch Metadata) that sends the header is served.
+    expect((await handler(get("https://app.example.com/api/dream/v1/models"))).status).toBe(200);
+  });
+
+  it("captures every option at construction", async () => {
+    const options: DreamProxyOptions = { apiKey: KEY, allowedHosts: ["proxy.test"], authorize: () => false, fetch: upstream().fetch, timeoutMs: 70_000 };
+    const handler = createDreamProxy(options);
+    options.authorize = undefined;
+    (options.allowedHosts as string[]).push("evil.test");
+    options.apiKey = "dk_other";
+    expect((await handler(new Request("http://proxy.test/v1/get_action", { method: "POST", body: "{}" }))).status).toBe(401);
+    expect((await handler(new Request("http://evil.test/v1/get_action", { method: "POST", body: "{}" }))).status).toBe(421);
+  });
+
+  it("looks up only a published fine-tune id: anything else is not_found, with no upstream call", async () => {
+    const { handler, seen } = proxy();
+    for (const id of ["dream-1-ft:", "dream-1-ft:0a1b2c3d-", "dream-1-ft:0a1b2c3d", "dream-1-ft:0a1b2c3d-Towels", "dream-1-ft:0a1b2c-towels", `dream-1-ft:0a1b2c3d-${"x".repeat(41)}`, "dream-1-ft:0a1b2c3d-a b"]) {
+      const reply = await handler(get(`https://app.example.com/api/dream/v1/fine_tuning/models/${encodeURIComponent(id)}/training_data`));
+      expect(reply.status, id).toBe(404);
+      expect(await reply.json()).toEqual({ error: { code: "not_found", message: "not a fine-tune id" } });
+    }
+    expect(seen).toHaveLength(0);
+  });
+
+  it("refuses durations and sizes that are not whole numbers in range", () => {
+    for (const bad of [{ timeoutMs: 0.5 }, { uploadTimeoutMs: 1.5 }, { maxBodyBytes: 2 ** 31 }, { maxResponseBytes: -1 }, { timeoutMs: Number.NaN }]) {
+      expect(() => createDreamProxy({ apiKey: KEY, allowedHosts: "any", ...bad }), JSON.stringify(bad)).toThrow(/whole number from 1 to/);
+    }
+  });
+
+  it("never waits on a sign-in, a fetch or a stream that does not settle", async () => {
+    const never = new Promise<never>(() => {});
+    const page = new AbortController();
+    const stuck = createDreamProxy({ apiKey: KEY, allowedHosts: "any", authorize: () => never, fetch: upstream().fetch });
+    const pending = stuck(new Request("http://proxy.test/v1/get_action", { method: "POST", body: "{}", signal: page.signal }));
+    setTimeout(() => page.abort(), 10);
+    expect((await pending).status).toBe(499);
+    const deaf = createDreamProxy({ apiKey: KEY, allowedHosts: "any", timeoutMs: 30, fetch: () => never });
+    expect((await deaf(new Request("http://proxy.test/v1/get_action", { method: "POST", body: "{}" }))).status).toBe(504);
+    const stubborn = (chunks: number) =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let i = 0; i < chunks; i++) controller.enqueue(new Uint8Array(400));
+        },
+        cancel: () => never,
+      });
+    const limited = createDreamProxy({ apiKey: KEY, allowedHosts: "any", maxBodyBytes: 1000, uploadTimeoutMs: 30, fetch: upstream().fetch });
+    const body = stubborn(5);
+    expect((await limited(new Request("http://proxy.test/v1/get_action", { method: "POST", body, duplex: "half" } as RequestInit))).status).toBe(413);
+    expect((await limited(new Request("http://proxy.test/v1/get_action", { method: "POST", body: stubborn(1), duplex: "half" } as RequestInit))).status).toBe(408);
+    // An answer whose body never ends is cut at the deadline too.
+    const trickle = createDreamProxy({ apiKey: KEY, allowedHosts: "any", timeoutMs: 30, fetch: async () => new Response(stubborn(1)) });
+    expect((await trickle(new Request("http://proxy.test/v1/get_action", { method: "POST", body: "{}" }))).status).toBe(504);
+  });
+
+  it("reads a fragmented body into one block, empty chunks skipped, and releases the reader", async () => {
+    const parts: Uint8Array[] = [];
+    for (let i = 0; i < 20_000; i++) parts.push(new Uint8Array(0), Uint8Array.of(i % 256));
+    const stream = new ReadableStream<Uint8Array>({ pull: (controller) => (parts.length ? controller.enqueue(parts.shift()!) : controller.close()) });
+    const bytes = await readAll(stream, 20_000, new AbortController().signal, 413);
+    expect(bytes.length).toBe(20_000);
+    expect(bytes[257]).toBe(1);
+    expect(bytes.buffer.byteLength).toBeLessThanOrEqual(2 * 20_000);
+    expect(stream.locked).toBe(false);
+    const many = new ReadableStream<Uint8Array>({ start: (controller) => { for (let i = 0; i < 2001; i++) controller.enqueue(Uint8Array.of(1)); controller.close(); } });
+    await expect(readAll(many, 2000, new AbortController().signal, 413)).rejects.toThrow("too large");
+    expect(many.locked).toBe(false);
+    const { handler, seen } = proxy({ maxBodyBytes: 64 * 1024 });
+    const json = JSON.stringify({ observation: { prompt: "x".repeat(30_000) } });
+    const pieces = Array.from(json, (c) => new TextEncoder().encode(c));
+    const fragmented = new ReadableStream<Uint8Array>({ pull: (controller) => (pieces.length ? controller.enqueue(pieces.shift()!) : controller.close()) });
+    expect((await handler(new Request("https://app.example.com/api/dream/v1/get_action", { method: "POST", body: fragmented, duplex: "half" } as RequestInit))).status).toBe(200);
+    expect(seen[0]!.body).toBe(json);
+  });
+});
+
+describe("nodeHandler, the Host", () => {
+  let server: Server | null = null;
+  afterEach(() => new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve())));
+
+  /** Sends `head` as written over a socket and returns the status line's code. */
+  async function raw(port: number, head: string): Promise<number> {
+    const { connect } = await import("node:net");
+    return new Promise((resolve, reject) => {
+      const socket = connect(port, "127.0.0.1", () => socket.write(head));
+      let text = "";
+      socket.on("data", (chunk) => (text += chunk));
+      socket.on("end", () => resolve(Number(/^HTTP\/1\.[01] (\d{3})/.exec(text)?.[1] ?? 0)));
+      socket.on("error", reject);
+    });
+  }
+
+  it("refuses a missing, malformed or absolute-form host, and serves a port and an IPv6 literal it allows", async () => {
+    const handler = createDreamProxy({ apiKey: KEY, allowedHosts: ["localhost", "localhost:8787", "[::1]:8787"], fetch: upstream(() => Response.json([])).fetch });
+    server = createServer(nodeHandler(handler));
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const port = (server!.address() as AddressInfo).port;
+    const v = `Dream-Client-Version: ${CLIENT_VERSION}\r\n`;
+    expect(await raw(port, `GET /v1/models HTTP/1.0\r\n${v}\r\n`)).toBe(400);
+    expect(await raw(port, `GET /v1/models HTTP/1.1\r\nHost: local host\r\n${v}Connection: close\r\n\r\n`)).toBe(400);
+    expect(await raw(port, `GET http://localhost/v1/models HTTP/1.1\r\nHost: localhost\r\n${v}Connection: close\r\n\r\n`)).toBe(400);
+    expect(await raw(port, `GET /v1/models HTTP/1.1\r\nHost: localhost:8787\r\n${v}Connection: close\r\n\r\n`)).toBe(200);
+    expect(await raw(port, `GET /v1/models HTTP/1.1\r\nHost: [::1]:8787\r\n${v}Connection: close\r\n\r\n`)).toBe(200);
+    expect(await raw(port, `GET /v1/models HTTP/1.1\r\nHost: localhost:9999\r\n${v}Connection: close\r\n\r\n`)).toBe(421);
   });
 });

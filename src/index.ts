@@ -39,6 +39,7 @@ export {
   DreamActionError,
   DreamAuthError,
   DreamBadRequest,
+  DreamCallbackWarning,
   DreamCancelled,
   DreamConfigError,
   DreamError,

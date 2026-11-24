@@ -20,5 +20,8 @@ client's `Dream-Client-Version` and `Dream-Client-Instance` (a browser cannot se
 requests addressed to it by name (`allowedHosts`, which stops DNS rebinding) and, from a page, only its own
 (`allowedOrigins`), and refuses bodies over 8 MiB.
 
+Serving the page sets a random session cookie (`HttpOnly; SameSite=Strict`, so no other site's page, link or image
+sends it), and the proxy's `authorize` forwards only requests that carry it.
+
 **A deployed proxy needs authentication.** Add your own sign-in (`authorize`) before it is reachable by anyone else:
 whoever reaches it spends your key. The host and origin checks are not a sign-in.

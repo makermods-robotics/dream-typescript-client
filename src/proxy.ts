@@ -33,6 +33,8 @@ import { DreamConfigError } from "./errors.js";
 import { FINE_TUNE_PREFIX, pyQuote } from "./trained-inputs.js";
 import { checkClientVersion, CLIENT_INSTANCE_HEADER, CLIENT_VERSION_HEADER, END_SESSION_PATH, GET_ACTION_PATH, USER_AGENT_PRODUCT } from "./transport.js";
 import { CLIENT_VERSION } from "./version.js";
+import { checkAction, NO_DECLARED_HEADS } from "./actions.js";
+import { parseRaw, RawNumber, setOwn, writeRaw, type RawJson } from "./json-raw.js";
 
 /** A standard fetch handler: what createDreamProxy() returns. */
 export type FetchHandler = (request: Request) => Promise<Response>;
@@ -157,8 +159,9 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
     allowInsecureHttp = false,
   } = options;
   if (typeof apiKey !== "string" || !apiKey) throw new DreamConfigError("createDreamProxy() needs apiKey, your Dream API key");
-  // One canonical key, the one sent and the one every answer is checked for: no surrounding spaces (which fetch would
-  // strip from the header), only the characters Dream keys are made of, and long enough never to match a field name.
+  // One canonical key, the one sent and the one every answer is checked for (this proxy's policy, not a format Dream
+  // sets): no surrounding spaces (which fetch would strip from the header), letters, digits and ._~+/=-, and at least
+  // 16 of them, so it cannot match a short field name.
   if (apiKey.length < PROXY_KEY_MIN || !PROXY_KEY.test(apiKey)) {
     throw new DreamConfigError(`createDreamProxy() apiKey must be at least ${PROXY_KEY_MIN} letters, digits or ._~+/=- with no spaces: copy the key again, whole`);
   }
@@ -303,26 +306,34 @@ export function createDreamProxy(options: DreamProxyOptions): FetchHandler {
     // The caller's cancellation and the deadline end the exchange, answer included, even with a fetch that ignores
     // its signal.
     const exchange = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
-    let reply: Response;
+    let reply: Response | undefined;
     let payload: Uint8Array<ArrayBuffer> | null;
     try {
       reply = await untilAborted(upstream(target.target, { method: target.method, headers, body, redirect: "manual", signal: exchange }), exchange, discardBody);
       payload = NO_BODY.has(reply.status) || !reply.body ? null : await readAll(reply.body, maxResponseBytes, exchange, 502);
     } catch (error) {
       if (signal.aborted) return fail(499, "cancelled");
-      if (error instanceof BodyError) return fail(502, "upstream answer too large");
+      if (error instanceof BodyError) {
+        // A platform or data-service refusal keeps its status even when its body is too large to keep.
+        if (target.answer !== "gateway" && reply! !== undefined && reply.status >= 400 && reply.status <= 599) {
+          return json(reply.status, genericRefusal(reply.status), cors);
+        }
+        return fail(502, "upstream answer too large");
+      }
       const name = error instanceof Error ? error.name : "";
       return name === "TimeoutError" || exchange.aborted ? fail(504, "timeout") : fail(502, "unreachable");
     }
-    const status = reply.status >= 200 && reply.status <= 599 ? reply.status : 502;
+    const status = reply!.status >= 200 && reply!.status <= 599 ? reply!.status : 502;
     if (NO_BODY.has(status)) {
-      discardBody(reply);
+      discardBody(reply!);
       return new Response(null, { status, headers: { ...cors, "Cache-Control": "no-store" } });
     }
     // Only an answer of the route's own shape goes back, parsed and written anew, and only when no key or string in
     // it carries the key (see answerFor).
     const answer = answerFor(target.answer, status, payload, secret);
     if (answer === null) return fail(502, "upstream answer withheld");
+    // An action that breaks the action rules (src/actions.ts): the client raises it as a DreamActionError.
+    if (typeof answer === "object") return json(502, { proxy_error: "action refused", detail: answer.actionRefused }, cors);
     return new Response(answer, { status, headers: { ...cors, "Content-Type": "application/json", "Cache-Control": "no-store" } });
   };
 }
@@ -332,13 +343,13 @@ type AnswerShape = "gateway" | "models" | "training";
 
 /** The bounds an answer is checked within; past any of them it is withheld. */
 export const ANSWER_LIMITS = {
-  /** Nesting, arrays and objects. */
+  /** Nesting, arrays and objects, of what is kept. */
   depth: 32,
   /** Characters of one string value; a gateway envelope's text field past it is left out, any other string withholds. */
   string: 65_536,
   /** Characters of one object key, and of a session id. */
   key: 4096,
-  /** Values, all told. */
+  /** Values kept, all told, counted before they are scheduled. */
   nodes: 1_000_000,
   /** Characters decoded while looking for the key, all told. */
   decoded: 4 * 1024 * 1024,
@@ -347,33 +358,32 @@ export const ANSWER_LIMITS = {
 /** An answer outside {@link ANSWER_LIMITS} or its route's shape. */
 class Unfit extends Error {}
 
-type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-
 /** The keys of an object, one at a time, without building a list of them. */
 function* keysOf(node: Record<string, unknown>): Generator<string> {
   for (const key in node) if (Object.hasOwn(node, key)) yield key;
 }
 
-/** What a walk counted, for tests: values visited and characters decoded. */
+/** What answerFor counted, for tests: values kept (the whole projection) and characters decoded by the key scan. */
 export interface ScanWork {
   nodes: number;
   decoded: number;
 }
 
 /**
- * Walks `value` without recursion, within {@link ANSWER_LIMITS}, calling `visit` on every value with its object key,
- * if any. One frame per open array or object (an index, or a key iterator), and the count is checked before a child is
- * scheduled: a wide array costs nothing past the limit.
+ * Walks `value` without recursion, calling `visit` on every value with its object key, if any. One frame per open
+ * array or object (an index, or a key iterator); `work.nodes`, shared by every walk of one answer, is checked against
+ * {@link ANSWER_LIMITS} before a child is scheduled, so a wide array costs nothing past the limit. A number is a leaf.
  *
  * @throws Unfit A limit is passed.
  */
-function walk(value: unknown, visit: (node: unknown, key: string | null) => void, work?: ScanWork): void {
+function walk(value: unknown, visit: (node: unknown, key: string | null) => void, work: ScanWork | null): void {
   type Frame = { node: unknown[]; index: number } | { node: Record<string, unknown>; keys: Generator<string> };
   const frames: Frame[] = [];
-  let nodes = 0;
   const enter = (node: unknown, key: string | null) => {
-    if (++nodes > ANSWER_LIMITS.nodes) throw new Unfit();
-    if (work) work.nodes++;
+    if (work) {
+      if (work.nodes >= ANSWER_LIMITS.nodes) throw new Unfit();
+      work.nodes++;
+    }
     visit(node, key);
     if (Array.isArray(node) || record(node)) {
       if (frames.length >= ANSWER_LIMITS.depth) throw new Unfit();
@@ -394,62 +404,57 @@ function walk(value: unknown, visit: (node: unknown, key: string | null) => void
   }
 }
 
-const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+/** An object of a parsed answer (a {@link RawNumber} is a number, not an object). */
+const record = (value: unknown): value is Record<string, RawJson> =>
+  typeof value === "object" && value !== null && !Array.isArray(value) && !(value instanceof RawNumber);
 const text = (value: unknown, limit: number = ANSWER_LIMITS.string): value is string => typeof value === "string" && value.length <= limit;
-/** A finite number that JSON writes back as itself (an infinity is written as null). */
-const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+/** A number that is finite (`1e400` is not: it reads as Infinity). Its text is kept as it came, whatever it is. */
+const finite = (value: unknown): value is RawNumber => value instanceof RawNumber && Number.isFinite(value.value);
+/** How the action rules read a parsed answer's numbers. */
+const readRaw = (value: unknown) => (value instanceof RawNumber ? value.value : undefined);
 
 /**
- * JSON of the plain kinds within the bounds: strings, keys, depth, count; every number finite.
+ * Plain JSON within the bounds (strings, keys, depth, count), every number finite.
  *
  * @throws Unfit It is not.
  */
-function plain(value: unknown): Json {
+function plain(value: RawJson, work: ScanWork): RawJson {
   walk(value, (node, key) => {
     if (key !== null && key.length > ANSWER_LIMITS.key) throw new Unfit();
     if (node === null || Array.isArray(node) || record(node) || finite(node) || typeof node === "boolean" || text(node)) return;
     throw new Unfit();
-  });
-  return value as Json;
-}
-
-/**
- * An actuator head (`q_r_chunk`, `q_l_chunk`, a `per_key` part): null as a whole, or arrays whose every leaf is a
- * finite number. No null, string, boolean or object where a joint value belongs.
- *
- * @throws Unfit It is not.
- */
-function numeric(value: unknown): Json {
-  if (value === null) return null;
-  walk(value, (node) => {
-    if (!(Array.isArray(node) || finite(node))) throw new Unfit();
-  });
-  return value as Json;
+  }, work);
+  return value;
 }
 
 /** An optional field of a projection: its value when `test` passes, else left out. */
-function optional(from: Record<string, unknown>, out: Record<string, unknown>, key: string, test: (value: unknown) => boolean): void {
-  if (Object.hasOwn(from, key) && test(from[key])) out[key] = from[key];
+function optional(from: Record<string, RawJson>, out: Record<string, RawJson>, key: string, test: (value: RawJson) => boolean): void {
+  if (Object.hasOwn(from, key) && test(from[key]!)) setOwn(out, key, from[key]!);
 }
 
-/** The actuator heads of an action dict; every other key is an extension, passed through as plain JSON. */
-const ACTUATOR_HEADS = new Set(["q_r_chunk", "q_l_chunk"]);
 /** The envelope codes whose reply carries an action. */
 const ACTION_CODES = new Set(["DA-0000", "DA-0001"]);
 
+/** The body standing for a refusal of the platform or the data service the proxy cannot pass on as it came. */
+function genericRefusal(status: number) {
+  return { error: { code: "upstream_error", message: `the Dream service answered ${status}` } };
+}
+
+/** An action the action rules refuse, named for the client (which raises it as a DreamActionError). */
+class ActionRefused extends Error {}
+
 /**
- * The answer to pass back, re-serialised, or null to withhold it. It must parse as UTF-8 JSON, every number in it as
- * written must be one JSON writes back unchanged (a finite double; an integer exactly representable), and it must fit
- * its route:
+ * The answer to pass back, written anew from the parse with every number byte-identical to how it arrived; null to
+ * withhold it; or `{ actionRefused }` when its action breaks the action rules (src/actions.ts). It must parse as UTF-8
+ * JSON and fit its route:
  *
  * - get_action and end_session: an object with a `status` envelope whose `code` is a string; of the envelope, `name`,
  *   `reason`, `detail` and `trace_id` are kept when strings (of at most `ANSWER_LIMITS.string` characters) or null,
  *   `retryable` when a boolean or null and `retry_after_s` when a finite number or null; `session_id` when null or a
  *   string of at most `ANSWER_LIMITS.key` characters (a longer one withholds the answer, since the client must adopt
  *   it exactly); of `timing`, `gateway_ms` and `serve_infer_ms` when finite numbers. With an OK code (`DA-0000`,
- *   `DA-0001`), `actions`: null, or an object whose actuator heads (`q_r_chunk`, `q_l_chunk`, every `per_key` part)
- *   are null or arrays of finite numbers only, and whose other keys (extensions) are plain JSON; a refusal's actions
- *   are left out.
+ *   `DA-0001`), `actions` as it came, when it is null, or an object of plain JSON (every number finite) that keeps
+ *   the action rules. A refusal's `actions` are not read at all: nothing in them can withhold the envelope.
  * - models: a list of model objects, each a string `id`, and `owner`, `base_model`, `embodiment`, `created_at` (strings
  *   or null), `servable`, `parts_withheld` (booleans), `cameras` (strings, or null) and `embodiment_config` (plain JSON
  *   or null) when present; another type for one of them withholds the answer.
@@ -459,69 +464,34 @@ const ACTION_CODES = new Set(["DA-0000", "DA-0001"]);
  *   strings it has, its status kept; one of another shape, or one that carries the key, is answered
  *   `{ error: { code: "upstream_error", message } }` with the same status.
  *
- * Then every key and string kept is checked for the key ({@link carriesSecret}), and the text written for its literal
- * spelling (a key of digits echoed as a number).
+ * The whole projection shares one count of values kept, and finishes before anything is written. Then every key,
+ * string and number token kept is checked for the key ({@link carriesSecret}), and the text written for its literal.
  */
-export function answerFor(shape: AnswerShape, status: number, payload: Uint8Array | null, secret: string, work?: ScanWork): string | null {
-  let raw = "";
-  let decoded: unknown;
+export function answerFor(shape: AnswerShape, status: number, payload: Uint8Array | null, secret: string, work: ScanWork = { nodes: 0, decoded: 0 }): string | null | { actionRefused: string } {
+  let decoded: RawJson | undefined;
   try {
-    raw = new TextDecoder("utf-8", { fatal: true }).decode(payload ?? new Uint8Array(0));
-    decoded = JSON.parse(raw);
-    if (!numbersFaithful(raw)) decoded = undefined;
+    decoded = parseRaw(new TextDecoder("utf-8", { fatal: true }).decode(payload ?? new Uint8Array(0)));
   } catch {
     decoded = undefined;
   }
   const refusal = shape !== "gateway" && status >= 400;
-  const generic = () => serialize({ error: { code: "upstream_error", message: `the Dream service answered ${status}` } });
+  const generic = () => JSON.stringify(genericRefusal(status));
   try {
-    const kept = project(shape, status, decoded);
-    const written = serialize(kept);
-    if (carriesSecret(kept, secret, work) || written.includes(secret)) return refusal ? generic() : null;
+    const kept = project(shape, status, decoded, work);
+    if (carriesSecret(kept, secret, work)) return refusal ? generic() : null;
+    const written = writeRaw(kept);
+    if (written.includes(secret)) return refusal ? generic() : null;
     return written;
-  } catch {
+  } catch (error) {
+    if (error instanceof ActionRefused) {
+      return { actionRefused: error.message.includes(secret) ? "an actuator head is not joint values" : error.message };
+    }
     return refusal ? generic() : null;
   }
 }
 
-/** Whether every number token in JSON `raw` reads as a double JSON writes back unchanged: finite, integers exact. */
-export function numbersFaithful(raw: string): boolean {
-  const token = /-?(?:0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/y;
-  let i = 0;
-  while (i < raw.length) {
-    const c = raw.charCodeAt(i);
-    if (c === 0x22) {
-      // A string: skipped to its closing quote, escapes included.
-      i++;
-      while (i < raw.length && raw.charCodeAt(i) !== 0x22) i += raw.charCodeAt(i) === 0x5c ? 2 : 1;
-      i++;
-    } else if (c === 0x2d || (c >= 0x30 && c <= 0x39)) {
-      token.lastIndex = i;
-      const match = token.exec(raw);
-      if (!match) return false;
-      const value = Number(match[0]);
-      if (!Number.isFinite(value)) return false;
-      if (match[1] === undefined && match[2] === undefined && !Number.isSafeInteger(value) && BigInt(match[0]) !== BigInt(value)) return false;
-      i = token.lastIndex;
-    } else i++;
-  }
-  return true;
-}
-
-/** JSON text of a projected answer, as JSON.stringify writes it but for -0, written `-0` so its sign survives. */
-function serialize(value: Json): string {
-  if (typeof value === "number") return Object.is(value, -0) ? "-0" : JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(serialize).join(",")}]`;
-  if (record(value)) {
-    const parts: string[] = [];
-    for (const key of keysOf(value)) parts.push(`${JSON.stringify(key)}:${serialize(value[key] as Json)}`);
-    return `{${parts.join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-/** @throws Unfit The answer does not fit its route. */
-function project(shape: AnswerShape, status: number, decoded: unknown): Json {
+/** @throws Unfit The answer does not fit its route. @throws ActionRefused Its action breaks the action rules. */
+function project(shape: AnswerShape, status: number, decoded: RawJson | undefined, work: ScanWork): RawJson {
   if (shape !== "gateway" && status >= 400) {
     const error = record(decoded) && record(decoded.error) ? decoded.error : {};
     const out: Record<string, string> = {};
@@ -534,54 +504,42 @@ function project(shape: AnswerShape, status: number, decoded: unknown): Json {
   if (shape === "gateway") {
     if (!record(decoded) || !record(decoded.status) || !text(decoded.status.code, ANSWER_LIMITS.key)) throw new Unfit();
     const from = decoded.status;
-    const envelope: Record<string, unknown> = { code: from.code };
+    const envelope: Record<string, RawJson> = { code: from.code! };
     for (const key of ["name", "reason", "detail", "trace_id"]) optional(from, envelope, key, (v) => v === null || text(v));
     optional(from, envelope, "retryable", (v) => v === null || typeof v === "boolean");
     optional(from, envelope, "retry_after_s", (v) => v === null || finite(v));
-    const out: Record<string, unknown> = { status: envelope };
+    const out: Record<string, RawJson> = { status: envelope };
     if (Object.hasOwn(decoded, "session_id")) {
       const id = decoded.session_id;
       if (typeof id === "string" && id.length > ANSWER_LIMITS.key) throw new Unfit();
       if (id === null || typeof id === "string") out.session_id = id;
     }
     if (ACTION_CODES.has(from.code as string) && Object.hasOwn(decoded, "actions")) {
-      const actions = decoded.actions;
-      if (actions === null) out.actions = null;
-      else if (!record(actions)) throw new Unfit();
-      else {
-        const kept: Record<string, Json> = {};
-        for (const key of keysOf(actions)) {
-          if (key.length > ANSWER_LIMITS.key) throw new Unfit();
-          const head = actions[key];
-          if (ACTUATOR_HEADS.has(key)) kept[key] = numeric(head);
-          else if (key === "per_key") {
-            if (head === null) kept[key] = null;
-            else if (!record(head)) throw new Unfit();
-            else {
-              const parts: Record<string, Json> = {};
-              for (const part of keysOf(head)) {
-                if (part.length > ANSWER_LIMITS.key) throw new Unfit();
-                parts[part] = numeric(head[part]);
-              }
-              kept[key] = parts;
-            }
-          } else kept[key] = plain(head);
+      const actions = decoded.actions!;
+      if (actions !== null && !record(actions)) throw new ActionRefused("the model's reply carries no action dict");
+      if (actions !== null) {
+        // The action rules first (a non-finite number is an action the client refuses), then the bounds.
+        try {
+          checkAction(actions, NO_DECLARED_HEADS, readRaw);
+        } catch (error) {
+          throw new ActionRefused((error as Error).message);
         }
-        out.actions = kept;
+        plain(actions, work);
       }
+      out.actions = actions;
     }
     if (record(decoded.timing)) {
-      const timing: Record<string, unknown> = {};
+      const timing: Record<string, RawJson> = {};
       optional(decoded.timing, timing, "gateway_ms", finite);
       optional(decoded.timing, timing, "serve_infer_ms", finite);
       out.timing = timing;
     }
-    return out as Json;
+    return out;
   }
   if (shape === "models") {
     if (!Array.isArray(decoded) || decoded.length > 10_000) throw new Unfit();
-    const nullableText = (v: unknown) => v === null || text(v);
-    const fields: Record<string, (v: unknown) => boolean> = {
+    const nullableText = (v: RawJson) => v === null || text(v);
+    const fields: Record<string, (v: RawJson) => boolean> = {
       owner: nullableText,
       base_model: nullableText,
       embodiment: nullableText,
@@ -593,32 +551,32 @@ function project(shape: AnswerShape, status: number, decoded: unknown): Json {
     };
     return decoded.map((model) => {
       if (!record(model) || !text(model.id, ANSWER_LIMITS.key)) throw new Unfit();
-      const out: Record<string, unknown> = { id: model.id };
+      const out: Record<string, RawJson> = { id: model.id };
       for (const [key, test] of Object.entries(fields)) {
         if (!Object.hasOwn(model, key)) continue;
-        if (!test(model[key])) throw new Unfit();
-        out[key] = key === "embodiment_config" && model[key] !== null ? plain(model[key]) : model[key];
+        if (!test(model[key]!)) throw new Unfit();
+        out[key] = key === "embodiment_config" && model[key] !== null ? plain(model[key]!, work) : model[key]!;
       }
-      return out as Json;
+      return out;
     });
   }
   if (!record(decoded)) throw new Unfit();
-  const out: Record<string, Json> = {};
-  if (Object.hasOwn(decoded, "cameras")) out.cameras = plain(decoded.cameras);
+  const out: Record<string, RawJson> = {};
+  if (Object.hasOwn(decoded, "cameras")) out.cameras = plain(decoded.cameras!, work);
   if (Object.hasOwn(decoded, "prompts")) {
-    if (!Array.isArray(decoded.prompts) || !decoded.prompts.every((prompt) => text(prompt))) throw new Unfit();
-    out.prompts = plain(decoded.prompts);
+    const prompts = decoded.prompts!;
+    if (!Array.isArray(prompts) || !prompts.every((prompt) => text(prompt))) throw new Unfit();
+    out.prompts = plain(prompts, work);
   }
   return out;
 }
 
 /**
- * Whether `value` carries `secret` (and so `Bearer <secret>`), by exact match of that key, in any object key or string,
- * as written or decoded: from `\uXXXX` escapes (JSON text inside a string), from percent-encoding, and from every run of
- * base64, base64url or hex characters, each decoded at every alignment, to two levels. Numbers carry nothing here
- * (answerFor checks the written text for a key of digits). Any other encoding (a key split across strings, reversed,
- * encrypted) is not detected. The work is bounded: past {@link ANSWER_LIMITS} (`decoded` characters all told) it
- * answers true, and the answer is withheld.
+ * Whether `value` carries `secret` (and so `Bearer <secret>`), by exact match of that key, in any object key, string or
+ * number token (as it arrived), as written or decoded: from `\uXXXX` escapes (JSON text inside a string), from
+ * percent-encoding, and from every run of base64, base64url or hex characters, each decoded at every alignment, to two
+ * levels. Any other encoding (a key split across strings, reversed, encrypted) is not detected. The work is bounded:
+ * past {@link ANSWER_LIMITS} (`decoded` characters all told) it answers true, and the answer is withheld.
  */
 export function carriesSecret(value: unknown, secret: string, work?: ScanWork): boolean {
   let budget = ANSWER_LIMITS.decoded;
@@ -633,10 +591,12 @@ export function carriesSecret(value: unknown, secret: string, work?: ScanWork): 
   };
   let carries = false;
   try {
+    // Not counted again: the projection counted every value kept.
     walk(value, (node, key) => {
       if (carries) return;
-      if ((key !== null && seen(key, 0)) || (typeof node === "string" && seen(node, 0))) carries = true;
-    }, work);
+      const spelled = node instanceof RawNumber ? node.raw : typeof node === "string" ? node : null;
+      if ((key !== null && seen(key, 0)) || (spelled !== null && seen(spelled, 0))) carries = true;
+    }, null);
   } catch {
     return true;
   }

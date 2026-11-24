@@ -26,6 +26,7 @@ export {
   type Commanded,
   type Diagnostics,
   type DreamReason,
+  type NumberArray,
   type ExecutionTiming,
   type GetActionOptions,
   type IkLead,
@@ -56,6 +57,7 @@ export {
 } from "./errors.js";
 export { DREAM_1_BETA, DREAM_1_BETA_FLASH, type CheckpointId, type Model } from "./models.js";
 export { FINE_TUNE_PREFIX, type TrainedInputs } from "./trained-inputs.js";
+export { chunkRows } from "./actions.js";
 export { ObservationWindow } from "./window.js";
 export { Pacer, type PacingMode } from "./pacing.js";
 export { SeamSmoother } from "./smoothing.js";

@@ -11,7 +11,7 @@ import { arm, ClientIK, defineArm, solveChunk } from "../src/ik/index.js";
 import { DreamActionError, DreamConfigError, DreamObservationError, PolicyClient, SeamSmoother, type Model } from "../src/index.js";
 import {
   check,
-  checkFiniteAction,
+  checkAction,
   compileChecks,
   encode,
   every,
@@ -57,9 +57,9 @@ describe("the hole-aware checks", () => {
     // From the wire, JSON.parse never makes a hole; the reply checks still refuse one, as getAction() would.
     const reply = { q_r_chunk: [[0, 0], holed([0, 0], 1)], per_key: { "action.right_grip": [[0.5], [0.5]] } };
     expect(firstNonFinite(reply)).toEqual({ key: "q_r_chunk", row: 1, hole: true });
-    expect(() => checkFiniteAction(reply)).toThrow(/has a hole \(a missing element of a sparse array\) at key 'q_r_chunk' row 1/);
+    expect(() => checkAction(reply)).toThrow(/has a hole \(a missing element of a sparse array\) at key 'q_r_chunk' row 1/);
     try {
-      checkFiniteAction({ per_key: { "action.right_grip": holed([[0.5], [0.5], [0.5]], 2) } });
+      checkAction({ per_key: { "action.right_grip": holed([[0.5], [0.5], [0.5]], 2) } });
       expect.unreachable();
     } catch (error) {
       expect(error).toBeInstanceOf(DreamActionError);

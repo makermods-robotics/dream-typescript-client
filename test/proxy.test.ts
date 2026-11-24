@@ -14,6 +14,16 @@ import { nodeHandler } from "../src/node/index.js";
 import { ANSWER_LIMITS, answerFor, createDreamProxy, readAll, type DreamProxyOptions, type ScanWork } from "../src/proxy.js";
 
 const KEY = "dk_secret_proxy_key";
+
+/** A promise and the function that settles it: a test waits on the event itself, never on the clock. */
+function signal<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+/** Settles when `abort` fires on `target`. */
+const aborted = (target: AbortSignal) => (target.aborted ? Promise.resolve() : new Promise<void>((resolve) => target.addEventListener("abort", () => resolve(), { once: true })));
 const PAGE = "https://app.example.com";
 
 interface Seen {
@@ -269,21 +279,21 @@ describe("createDreamProxy", () => {
     expect(slow.seen).toHaveLength(0);
 
     const caller = new AbortController();
-    let upstreamSignal: AbortSignal | undefined;
+    const called = signal<AbortSignal>();
     const hanging = createDreamProxy({
       apiKey: KEY,
       allowedHosts: "any",
       fetch: (_url, init) => {
-        upstreamSignal = init.signal!;
+        called.resolve(init.signal!);
         return new Promise<Response>((_, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason)));
       },
     });
     const call = hanging(new Request("http://127.0.0.1/v1/get_action", { method: "POST", body: "{}", signal: caller.signal }));
-    for (let i = 0; i < 100 && !upstreamSignal; i++) await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(upstreamSignal?.aborted).toBe(false);
+    const upstreamSignal = await called.promise;
+    expect(upstreamSignal.aborted).toBe(false);
     caller.abort();
     expect((await call).status).toBe(499);
-    expect(upstreamSignal!.aborted).toBe(true);
+    expect(upstreamSignal.aborted).toBe(true);
   });
 
   it("gives up on an upload that stalls, and maps a body that fails to read", async () => {
@@ -384,12 +394,12 @@ describe("nodeHandler", () => {
   });
 
   it("aborts the upstream call when the client disconnects", async () => {
-    let upstreamSignal: AbortSignal | undefined;
+    const called = signal<AbortSignal>();
     const handler = createDreamProxy({
       apiKey: KEY,
       allowedHosts: "any",
       fetch: (_url, init) => {
-        upstreamSignal = init.signal!;
+        called.resolve(init.signal!);
         return new Promise<Response>((_, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason)));
       },
     });
@@ -398,12 +408,12 @@ describe("nodeHandler", () => {
     const url = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
     const client = new AbortController();
     const call = fetch(`${url}/v1/get_action`, { method: "POST", body: "{}", signal: client.signal }).catch((error: Error) => error);
-    for (let i = 0; i < 100 && !upstreamSignal; i++) await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(upstreamSignal?.aborted).toBe(false);
+    const upstreamSignal = await called.promise;
+    expect(upstreamSignal.aborted).toBe(false);
     client.abort();
     await call;
-    for (let i = 0; i < 100 && !upstreamSignal!.aborted; i++) await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(upstreamSignal!.aborted).toBe(true);
+    await aborted(upstreamSignal);
+    expect(upstreamSignal.aborted).toBe(true);
   });
 
   it("answers 500, never an unhandled rejection, when the handler's answer fails to read", async () => {
@@ -433,9 +443,9 @@ describe("nodeHandler", () => {
   it("never buffers an unread body: past drainBytes the connection is closed", async () => {
     const handler = createDreamProxy({ apiKey: KEY, allowedHosts: "any", fetch: upstream().fetch, maxBodyBytes: 1024 });
     const listener = nodeHandler(handler, { drainBytes: 256 * 1024 });
-    let received = -1;
+    const closed = signal<number>();
     server = createServer((request, response) => {
-      request.socket.once("close", () => (received = request.socket.bytesRead));
+      request.socket.once("close", () => closed.resolve(request.socket.bytesRead));
       void listener(request, response);
     });
     await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
@@ -445,7 +455,7 @@ describe("nodeHandler", () => {
       .then((reply) => reply.status)
       .catch(() => "reset");
     expect([413, "reset"]).toContain(outcome);
-    for (let i = 0; i < 200 && received < 0; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    const received = await closed.promise;
     expect(received).toBeGreaterThan(0);
     expect(received).toBeLessThan(size / 2);
   });
@@ -558,9 +568,11 @@ describe("createDreamProxy, hardened", () => {
   it("never waits on a sign-in, a fetch or a stream that does not settle", async () => {
     const never = new Promise<never>(() => {});
     const page = new AbortController();
-    const stuck = createDreamProxy({ apiKey: KEY, allowedHosts: "any", authorize: () => never, fetch: upstream().fetch });
+    const asked = signal();
+    const stuck = createDreamProxy({ apiKey: KEY, allowedHosts: "any", authorize: () => (asked.resolve(), never), fetch: upstream().fetch });
     const pending = stuck(new Request("http://proxy.test/v1/get_action", { method: "POST", body: "{}", signal: page.signal }));
-    setTimeout(() => page.abort(), 10);
+    await asked.promise;
+    page.abort();
     expect((await pending).status).toBe(499);
     const deaf = createDreamProxy({ apiKey: KEY, allowedHosts: "any", timeoutMs: 30, fetch: () => never });
     expect((await deaf(new Request("http://proxy.test/v1/get_action", { method: "POST", body: "{}" }))).status).toBe(504);
@@ -655,12 +667,12 @@ describe("createDreamProxy, third review", () => {
     const { handler } = through(reply);
     const answered = await action(handler);
     expect(answered.status).toBe(502);
-    expect(await answered.json()).toEqual({ proxy_error: "upstream answer withheld" });
-    // The existing regression, run through the proxy: no action reaches the caller.
+    expect(await answered.json()).toMatchObject({ proxy_error: "action refused", detail: expect.stringMatching(/non-finite number.*at key 'per_key.action.right_arm' row 1/) });
+    // The existing regression, run through the proxy: no action reaches the caller, refused as an action.
     const client = new PolicyClient({ checkpoint: "c", baseUrl: "http://proxy.test", processing: "raw", proxyHeaders: true, fetch: (input, init) => handler(new Request(input, init)) });
     const error = await client.getAction({ prompt: "x" }).catch((e: Error) => e);
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).name).toBe("DreamProtocolError");
+    expect((error as Error).name).toBe("DreamActionError");
     // And a null where a number belongs is refused by the client, whatever the path.
     const nulled = new PolicyClient({ checkpoint: "c", baseUrl: "http://gateway.test", processing: "raw", fetch: async () => new Response('{"status":{"code":"DA-0000"},"session_id":"s","actions":{"q_r_chunk":[[0,0],[0,null]]}}') });
     const refused = await nulled.getAction({ prompt: "x" }).catch((e: Error & { detail?: unknown }) => e);
@@ -709,18 +721,26 @@ describe("createDreamProxy, third review", () => {
   });
 
   it("counts values before it schedules them: a wide array stops at the limit, a real answer is cheap", () => {
+    // One oversized array: counted up to the limit, then withheld.
     const wide = `{"status":{"code":"DA-0000"},"actions":{"extra":[${"0,".repeat(1_500_000)}0]}}`;
     const work: ScanWork = { nodes: 0, decoded: 0 };
     expect(answerFor("gateway", 200, new TextEncoder().encode(wide), SECRET, work)).toBeNull();
-    expect(work.nodes).toBeLessThanOrEqual(ANSWER_LIMITS.nodes);
-    // Eight heads of 48 rows of 7 values: every value visited once by the shape check and once by the key scan.
+    expect(work.nodes).toBe(ANSWER_LIMITS.nodes);
+    // Two arrays each within the limit, together past it: one budget for the whole reply, spent before anything is
+    // written.
+    const half = `[${"0,".repeat(600_000)}0]`;
+    const pair: ScanWork = { nodes: 0, decoded: 0 };
+    expect(answerFor("gateway", 200, new TextEncoder().encode(`{"status":{"code":"DA-0000"},"actions":{"a":${half},"b":${half}}}`), SECRET, pair)).toBeNull();
+    expect(pair.nodes).toBe(ANSWER_LIMITS.nodes);
+    // Eight heads of 48 rows of 7 values: every value kept counted once.
     const rows = Array.from({ length: 48 }, (_, r) => Array.from({ length: 7 }, (_, c) => Math.sin(r * 7 + c)));
     const per_key = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`action.part_${i}`, rows]));
     const answer = { status: { code: "DA-0000" }, session_id: "s", actions: { q_r_chunk: rows, q_l_chunk: rows, per_key } };
     const real: ScanWork = { nodes: 0, decoded: 0 };
     const written = answerFor("gateway", 200, new TextEncoder().encode(JSON.stringify(answer)), SECRET, real);
-    expect(JSON.parse(written!)).toEqual(answer);
-    expect(real.nodes).toBeLessThan(2 * 8 * 48 * 8 + 100);
+    expect(JSON.parse(written as string)).toEqual(answer);
+    // The actions object, eight heads of one array and 48 rows of 1 + 7 values, and per_key itself.
+    expect(real.nodes).toBe(1 + 8 * (1 + 48 * 8) + 1);
   });
 
   it("matches a Host by its canonical form: one field, default ports, IPv6 spellings, a trailing dot", async () => {
@@ -748,28 +768,28 @@ describe("createDreamProxy, third review", () => {
   });
 
   it("cancels a body that arrives after its deadline, and a sign-in answer the client left", async () => {
-    let cancelled = 0;
-    const body = () => new ReadableStream<Uint8Array>({ cancel: () => void cancelled++ });
-    const slow = createDreamProxy({
-      apiKey: SECRET,
-      allowedHosts: "any",
-      timeoutMs: 20,
-      fetch: () => new Promise((resolve) => setTimeout(() => resolve(new Response(body())), 60)),
-    });
+    // Each body says when it is cancelled; the answers are delivered by hand, after the proxy has moved on.
+    const cancels = [signal(), signal()];
+    let made = 0;
+    const body = () => {
+      const mine = cancels[made++]!;
+      return new ReadableStream<Uint8Array>({ cancel: () => mine.resolve() });
+    };
+    const answer = signal<Response>();
+    const slow = createDreamProxy({ apiKey: SECRET, allowedHosts: "any", timeoutMs: 20, fetch: () => answer.promise });
     expect((await action(slow)).status).toBe(504);
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    expect(cancelled).toBe(1);
+    answer.resolve(new Response(body()));
+    await cancels[0]!.promise;
     const page = new AbortController();
-    const late = createDreamProxy({
-      apiKey: SECRET,
-      allowedHosts: "any",
-      authorize: () => new Promise((resolve) => setTimeout(() => resolve(new Response(body(), { status: 401 })), 40)),
-    });
+    const verdict = signal<Response>();
+    const asked = signal();
+    const late = createDreamProxy({ apiKey: SECRET, allowedHosts: "any", authorize: () => (asked.resolve(), verdict.promise) });
     const pending = late(new Request("http://proxy.test/v1/get_action", { method: "POST", body: "{}", signal: page.signal }));
+    await asked.promise;
     page.abort();
     expect((await pending).status).toBe(499);
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(cancelled).toBe(2);
+    verdict.resolve(new Response(body(), { status: 401 }));
+    await cancels[1]!.promise;
   });
 
   it("refuses the contradictory client configuration a proxy would refuse anyway", () => {
@@ -810,13 +830,17 @@ describe("nodeHandler, third review", () => {
     const cancelledNow = new Promise<void>((resolve) => (onCancel = resolve));
     const handler = async () =>
       new Response(
-        new ReadableStream<Uint8Array>({
-          pull: () => onPull(),
-          cancel: () => {
-            cancelled = true;
-            onCancel();
+        new ReadableStream<Uint8Array>(
+          {
+            pull: () => onPull(),
+            cancel: () => {
+              cancelled = true;
+              onCancel();
+            },
           },
-        }),
+          // No pull before a reader asks: the first pull proves the adapter is reading.
+          { highWaterMark: 0 },
+        ),
         { status: 401 },
       );
     const errors: unknown[] = [];
@@ -842,38 +866,47 @@ describe("createDreamProxy, fourth review", () => {
   const gateway = (body: unknown, status = 200) => answerFor("gateway", status, bytes(typeof body === "string" ? body : JSON.stringify(body)), SECRET);
 
   it("passes only finite numbers in actuator heads: no object, null or string where a joint value belongs", () => {
-    for (const actions of ['{"q_r_chunk":[[{"x":0}]]}', '{"q_r_chunk":[[0,null]]}', '{"q_l_chunk":[["0.1"]]}', '{"per_key":{"action.right_arm":[[true]]}}', '{"per_key":{"action.right_arm":[{"0":1}]}}', '{"per_key":"x"}', '{"q_r_chunk":{"0":[1]}}']) {
-      expect(gateway(`{"status":{"code":"DA-0000"},"actions":${actions}}`), actions).toBeNull();
+    for (const actions of ['{"q_r_chunk":[[{"x":0}]]}', '{"q_r_chunk":[[0,null]]}', '{"q_l_chunk":[["0.1"]]}', '{"per_key":{"action.right_arm":[[true]]}}', '{"per_key":{"action.right_arm":[{"0":1}]}}', '{"q_r_chunk":{"0":[1]}}', '{"q_r_chunk":[[1],[2,3]]}']) {
+      // Refused as an action, which the client raises as a DreamActionError (not withheld as an unreadable answer).
+      expect(gateway(`{"status":{"code":"DA-0000"},"actions":${actions}}`), actions).toMatchObject({ actionRefused: expect.any(String) });
     }
     // A whole head that is null stays allowed, as the protocol sends a joint head the serve does not answer.
     const nulled = { status: { code: "DA-0000" }, actions: { q_r_chunk: null, per_key: { "action.right_arm": null, "action.right_grip": [[0.5]] } } };
-    expect(JSON.parse(gateway(nulled)!)).toEqual(nulled);
+    expect(JSON.parse(gateway(nulled) as string)).toEqual(nulled);
   });
 
   it("passes extensions through as plain JSON, strings and nulls included, as Python does", () => {
     const answer = { status: { code: "DA-0000" }, actions: { q_r_chunk: [[0.1, 0.2]], head_label: "right", extra: [null], note: { a: [1, "b"] } } };
-    expect(JSON.parse(gateway(answer)!)).toEqual(answer);
+    expect(JSON.parse(gateway(answer) as string)).toEqual(answer);
   });
 
   it("keeps a session id exactly, up to ANSWER_LIMITS.key characters, and withholds the answer past that", () => {
     const id = "s".repeat(257);
-    expect(JSON.parse(gateway({ status: { code: "DA-0001", reason: "new" }, session_id: id, actions: {} })!).session_id).toBe(id);
-    expect(JSON.parse(gateway({ status: { code: "DA-0001", reason: "new" }, session_id: "s".repeat(ANSWER_LIMITS.key), actions: {} })!).session_id).toHaveLength(ANSWER_LIMITS.key);
+    expect(JSON.parse(gateway({ status: { code: "DA-0001", reason: "new" }, session_id: id, actions: {} }) as string).session_id).toBe(id);
+    expect(JSON.parse(gateway({ status: { code: "DA-0001", reason: "new" }, session_id: "s".repeat(ANSWER_LIMITS.key), actions: {} }) as string).session_id).toHaveLength(ANSWER_LIMITS.key);
     expect(gateway({ status: { code: "DA-0001", reason: "new" }, session_id: "s".repeat(ANSWER_LIMITS.key + 1), actions: { q_r_chunk: [[1]] } })).toBeNull();
   });
 
-  it("never delivers a number it changed: inexact integers and infinities are withheld, -0 and doubles kept", () => {
-    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"q_r_chunk":[[9007199254740993]]}}')).toBeNull();
-    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"extra":[1e400]}}')).toBeNull();
-    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"q_r_chunk":[[9007199254740992, 1e21, 123456789012]]}}')).not.toBeNull();
-    const zero = gateway('{"status":{"code":"DA-0000"},"actions":{"q_r_chunk":[[-0, 0.5]]}}')!;
-    expect(zero).toContain("[[-0,0.5]]");
-    expect(Object.is(JSON.parse(zero).actions.q_r_chunk[0][0], -0)).toBe(true);
+  it("never rewrites a number: every token kept leaves as it came; a non-finite one is refused", () => {
+    for (const token of ["9007199254740993", "1000000000000000128", "-0", "-0.0", "1E+2", "0.10000000000000001", "1e-400"]) {
+      const body = `{"status":{"code":"DA-0000","retry_after_s":${token}},"actions":{"q_r_chunk":[[${token},0.5]],"extra":${token}},"timing":{"gateway_ms":${token}}}`;
+      expect(gateway(body), token).toBe(body);
+    }
+    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"extra":[1e400]}}')).toMatchObject({ actionRefused: expect.stringMatching(/non-finite/) });
+    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"q_r_chunk":[[-1e400]]}}')).toMatchObject({ actionRefused: expect.stringMatching(/non-finite/) });
     // Ordinary joint values round-trip bit for bit.
     let seed = 1;
     const rows = Array.from({ length: 48 }, () => Array.from({ length: 7 }, () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 6.283185307179586));
-    const back = JSON.parse(gateway({ status: { code: "DA-0000" }, actions: { q_r_chunk: rows } })!).actions.q_r_chunk;
+    const back = JSON.parse(gateway({ status: { code: "DA-0000" }, actions: { q_r_chunk: rows } }) as string).actions.q_r_chunk;
     expect(back).toEqual(rows);
+  });
+
+  it("never lets a refusal's discarded actions withhold its envelope", () => {
+    for (const actions of ['{"q_r_chunk":[[1e400]]}', '"junk"', "null", `[${"[".repeat(100)}${"]".repeat(100)}]`]) {
+      expect(JSON.parse(gateway(`{"status":{"code":"DA-2000","reason":"pool_full","retryable":true,"retry_after_s":5},"actions":${actions}}`) as string), actions).toEqual({
+        status: { code: "DA-2000", reason: "pool_full", retryable: true, retry_after_s: 5 },
+      });
+    }
   });
 
   it("withholds a key of digits echoed as a number", async () => {
@@ -883,10 +916,10 @@ describe("createDreamProxy, fourth review", () => {
   });
 
   it("keeps a refusal's meaning: a gateway refusal's actions are ignored, a platform refusal that must be withheld keeps its status", async () => {
-    expect(JSON.parse(gateway({ status: { code: "DA-2000", reason: "pool_full", retryable: true, retry_after_s: 2 }, actions: null })!)).toEqual({
+    expect(JSON.parse(gateway({ status: { code: "DA-2000", reason: "pool_full", retryable: true, retry_after_s: 2 }, actions: null }) as string)).toEqual({
       status: { code: "DA-2000", reason: "pool_full", retryable: true, retry_after_s: 2 },
     });
-    expect(JSON.parse(gateway('{"status":{"code":"DA-4000"},"actions":"whatever"}')!)).toEqual({ status: { code: "DA-4000" } });
+    expect(JSON.parse(gateway('{"status":{"code":"DA-4000"},"actions":"whatever"}') as string)).toEqual({ status: { code: "DA-4000" } });
     let calls = 0;
     const handler = createDreamProxy({
       apiKey: SECRET,
@@ -904,7 +937,7 @@ describe("createDreamProxy, fourth review", () => {
   it("keeps training prompts as given within ANSWER_LIMITS.string, and withholds rather than changes them", () => {
     const answer = (prompts: unknown) => answerFor("training", 200, bytes(JSON.stringify({ cameras: { front: [[640, 360]] }, prompts })), SECRET);
     const long = "p".repeat(4097);
-    expect(JSON.parse(answer([long, "wave"])!)).toEqual({ cameras: { front: [[640, 360]] }, prompts: [long, "wave"] });
+    expect(JSON.parse(answer([long, "wave"]) as string)).toEqual({ cameras: { front: [[640, 360]] }, prompts: [long, "wave"] });
     expect(answer(["p".repeat(ANSWER_LIMITS.string + 1)])).toBeNull();
     expect(answer(["wave", 3])).toBeNull();
   });
@@ -930,10 +963,27 @@ describe("createDreamProxy, fourth review", () => {
             continue;
           }
           wellFormed++;
-          expect(JSON.parse(written!), request.reply.body.slice(0, 80)).toEqual(parsed);
+          expect(JSON.parse(written as string), request.reply.body.slice(0, 80)).toEqual(parsed);
         }
       }
     }
     expect([replies, wellFormed]).toEqual([44, 42]);
+  });
+});
+
+
+describe("createDreamProxy, fifth review", () => {
+  const SECRET = "dk_SYNTHETIC_secret_7f3a9c";
+
+  it("keeps a refusal's status when its body is too large to keep", async () => {
+    const handler = createDreamProxy({ apiKey: SECRET, allowedHosts: "any", maxResponseBytes: 64, fetch: async () => new Response(`{"error":{"message":"${"x".repeat(200)}"}}`, { status: 401 }) });
+    const reply = await handler(get("http://proxy.test/v1/models"));
+    expect(reply.status).toBe(401);
+    expect(await reply.json()).toEqual({ error: { code: "upstream_error", message: "the Dream service answered 401" } });
+  });
+
+  it("checks a number token kept for the key as it arrived", () => {
+    const digits = "1234567890123456";
+    expect(answerFor("gateway", 200, new TextEncoder().encode(`{"status":{"code":"DA-0000","retry_after_s":${digits}e0}}`), digits)).toBeNull();
   });
 });

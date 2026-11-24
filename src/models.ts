@@ -3,7 +3,7 @@
  * plus the JSON call the platform and the data service share (`dream.datasets._call`).
  */
 
-import { API_KEY_ENV, authorization, KEY_PER_SITE, requireHttps, scrub, scrubJson } from "./credentials.js";
+import { API_KEY_ENV, authorization, KEY_PER_SITE, requestUrl, safeMessage, scrub, scrubJson } from "./credentials.js";
 
 export { scrub };
 import { DreamAuthError, DreamConfigError, DreamProtocolError, DreamServerError } from "./errors.js";
@@ -70,7 +70,8 @@ export async function callService(method: string, path: string, options: Service
   if (!options.apiKey && /(^|\.)dreamlabs\.ai(:\d+)?$/.test(hostOf(url))) {
     throw new DreamConfigError(`no api key: pass apiKey, or set ${API_KEY_ENV} (Node: @makermods/dreamlabs/node loadCredentials())`);
   }
-  if (options.apiKey) requireHttps(url, "the service URL", options.allowInsecureHttp);
+  // The one URL the request goes to, checked where the key is attached, and given to fetch as it is.
+  const target = requestUrl(url, path, "the service URL", Boolean(options.apiKey), options.allowInsecureHttp);
   const version = options.clientVersion ?? CLIENT_VERSION;
   const headers: Record<string, string> = {
     Accept: "application/json",
@@ -91,7 +92,7 @@ export async function callService(method: string, path: string, options: Service
     let text: string;
     const timeout = AbortSignal.timeout(TIMEOUT_MS);
     try {
-      const reply = await fetchImpl(`${url}${path}`, {
+      const reply = await fetchImpl(target, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -103,7 +104,8 @@ export async function callService(method: string, path: string, options: Service
     } catch (error) {
       if (signal?.aborted) throw cancelled(signal, `${what} was cancelled`);
       if (attempt + 1 >= attempts) {
-        const why = timeout.aborted ? `no answer within ${TIMEOUT_MS / 1000} s` : error instanceof Error ? error.message : String(error);
+        // The guarded formatter: a message getter or a string conversion that throws never escapes.
+        const why = timeout.aborted ? `no answer within ${TIMEOUT_MS / 1000} s` : safeMessage(error);
         throw new DreamProtocolError(`cannot reach the Dream service at ${url}: ${scrub(why, options.apiKey)}`);
       }
       await sleep(backoffS(attempt), signal, what);

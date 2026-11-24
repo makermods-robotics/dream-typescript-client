@@ -201,9 +201,10 @@ export function scrubJson<T>(value: T, secret: string | null | undefined): T {
 }
 
 /**
- * The keys a proxy takes (createDreamProxy's `apiKey`): at least {@link PROXY_KEY_MIN} characters of letters, digits and
- * `._~+/=-`, as Dream API keys are. Its answers are withheld when they carry this exact key, so a short one (such as a
- * field name) would withhold everything, and one with surrounding spaces would not be the key sent.
+ * The keys a proxy takes (createDreamProxy's `apiKey`): this proxy's policy, not a format Dream sets (Python 1.1.7
+ * sets none). At least {@link PROXY_KEY_MIN} characters of letters, digits and `._~+/=-`, no spaces: answers are
+ * withheld when they carry this exact key, so the minimum keeps it from matching short field names (a key could still
+ * equal a longer one, which would only withhold answers), and it is the one value both sent and looked for.
  */
 export const PROXY_KEY = /^[A-Za-z0-9._~+/=-]+$/;
 /** The shortest key a proxy takes. */
@@ -234,7 +235,8 @@ export function requireHttps(url: string, what: string, allowInsecureHttp: unkno
   if (allowInsecureHttp === true) return;
   let resolved: URL;
   try {
-    const page = (globalThis as { location?: { href?: unknown } }).location?.href;
+    const scope = globalThis as { document?: { baseURI?: unknown }; location?: { href?: unknown } };
+    const page = typeof scope.document?.baseURI === "string" ? scope.document.baseURI : scope.location?.href;
     resolved = typeof page === "string" ? new URL(url, page) : new URL(url);
   } catch {
     // A relative URL with no page to resolve it against: no request can go anywhere with it.
@@ -245,6 +247,28 @@ export function requireHttps(url: string, what: string, allowInsecureHttp: unkno
     `${what} is plain http:// to another computer, so the API key would cross the network in the clear: use https://, or set allowInsecureHttp: true on a network you trust`,
     { kind: "unsupported", key: what, row: null },
   );
+}
+
+/**
+ * The URL a request goes to, built once: `base` + `path`, a relative one resolved the way fetch resolves it (against
+ * the page's `document.baseURI`, or a worker's `location`). With a key attached (`keyed`) it must resolve, and be
+ * `https:` or this computer's (or `allowInsecureHttp` literally `true`); pass the result to fetch as it is.
+ *
+ * @throws DreamConfigError It does not, with a key.
+ */
+export function requestUrl(base: string, path: string, what: string, keyed: boolean, allowInsecureHttp: unknown): string {
+  const joined = `${base}${path}`;
+  const scope = globalThis as { document?: { baseURI?: unknown }; location?: { href?: unknown } };
+  const page = typeof scope.document?.baseURI === "string" ? scope.document.baseURI : typeof scope.location?.href === "string" ? scope.location.href : undefined;
+  let absolute: URL;
+  try {
+    absolute = page === undefined ? new URL(joined) : new URL(joined, page);
+  } catch {
+    if (keyed) throw new DreamConfigError(`${what} is relative and there is no page to resolve it against, so the API key would go to no known address`, { kind: "unsupported", key: what, row: null });
+    return joined;
+  }
+  if (keyed) requireHttps(absolute.href, what, allowInsecureHttp);
+  return absolute.href;
 }
 
 /** A message for any thrown value that never throws itself: an object with no prototype, a throwing getter. */

@@ -211,8 +211,7 @@ export function compileChecks(embodiment: unknown): Checks | null {
 /** numpy's `np.shape` of a value: lists, typed arrays and scalars; null for a ragged list, or one with a hole. */
 export function shapeOf(value: unknown): number[] | null {
   if (ArrayBuffer.isView(value)) return [(value as unknown as ArrayLike<number>).length];
-  // An object is no scalar of any shape (numpy cannot read a dict as a number): it never passes as a joint value.
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) return null;
+  // Anything else is a scalar to numpy (`np.shape({})` is `()`): whether it is a number is the action rules' business.
   if (!Array.isArray(value)) return [];
   if (!value.length) return [0];
   // A hole (a sparse array's missing element) has no shape: map() and every() would skip it, and JSON sends null.

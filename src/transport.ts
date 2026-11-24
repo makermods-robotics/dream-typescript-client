@@ -7,7 +7,8 @@
  * to the next one.
  */
 
-import { authorization, requireHttps, safeCause, scrubJson } from "./credentials.js";
+import { authorization, requestUrl, requireHttps, safeCause } from "./credentials.js";
+import { parseRaw, type RawJson } from "./json-raw.js";
 import { DreamCancelled, DreamConfigError, DreamError, DreamProtocolError, DreamTimeout, detail } from "./errors.js";
 import { CLIENT_VERSION } from "./version.js";
 
@@ -126,6 +127,8 @@ export class Transport {
   // A `#` field, so the key it carries never shows in console.log or JSON.stringify of the client.
   readonly #headers: Record<string, string>;
   readonly #secret: string | null;
+  readonly #auth: Record<string, string>;
+  readonly #allowInsecureHttp: unknown;
   private readonly now: () => number;
 
   constructor(options: TransportOptions) {
@@ -142,13 +145,15 @@ export class Transport {
       "Content-Type": "application/json",
       [CLIENT_VERSION_HEADER]: version,
       ...(options.proxyHeaders ? { [CLIENT_INSTANCE_HEADER]: this.instance } : inBrowser() ? {} : { "User-Agent": `${USER_AGENT_PRODUCT}/${version} ${this.instance}` }),
-      ...(options.apiKey ? authorization(options.apiKey) : {}),
       ...options.headers,
     };
+    this.#auth = options.apiKey ? authorization(options.apiKey) : {};
+    this.#allowInsecureHttp = options.allowInsecureHttp;
   }
 
   /**
-   * Posts one JSON body and returns the decoded reply, whatever its shape; `lastExchange` is set on every path out.
+   * Posts one JSON body and returns the decoded reply, whatever its shape, each number keeping its source text
+   * ({@link parseRaw}); `lastExchange` is set on every path out.
    *
    * @param options.signal Cancels the request; composed with the timeout, and the error says which fired.
    * @throws DreamError The channel is closed.
@@ -157,7 +162,7 @@ export class Transport {
    * @throws DreamProtocolError The gateway cannot be reached, or answered something that is not JSON.
    * @throws TypeError The payload holds something {@link encode} refuses (nothing was sent).
    */
-  async request(payload: unknown, path: string = GET_ACTION_PATH, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<unknown> {
+  async request(payload: unknown, path: string = GET_ACTION_PATH, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<RawJson> {
     if (this.closed) throw new DreamError(`inference request on a closed channel to ${this.baseUrl}`);
     const { timeoutMs = this.timeoutMs, signal } = options;
     if (signal?.aborted) throw cancelled(signal, "the request was cancelled before it was sent");
@@ -180,9 +185,11 @@ export class Transport {
     let raw = "";
     let status = 0;
     try {
-      const reply = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      // The one URL the request goes to, checked where the key is attached, and given to fetch as it is.
+      const url = requestUrl(this.baseUrl, path, "baseUrl", this.#secret !== null, this.#allowInsecureHttp);
+      const reply = await this.fetchImpl(url, {
         method: "POST",
-        headers: this.#headers,
+        headers: { ...this.#headers, ...this.#auth },
         body,
         signal: abort.signal,
         // A redirect is not followed: the key never goes to another host.
@@ -206,8 +213,8 @@ export class Transport {
     // A reply read after the abort fired (a fetch that ignores its signal) is not the answer: the caller has moved on.
     if (ended) throw this.aborted(ended);
     try {
-      // Every key and string without the key: a reply that echoes the request must not hand it to an error's fields.
-      return scrubJson(JSON.parse(raw), this.#secret);
+      // Read keeping each number's text (an integer a double cannot hold is then seen before it is changed).
+      return parseRaw(raw);
     } catch {
       // No cause: the parser's message quotes the reply.
       throw new DreamProtocolError(`inference reply from ${this.baseUrl} is not JSON (HTTP ${status}); is the correct DreamAPI gateway running there?`);

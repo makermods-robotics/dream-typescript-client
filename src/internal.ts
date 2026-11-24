@@ -110,7 +110,9 @@ export {
   type Exchange,
   type TransportOptions,
 } from "./transport.js";
-export { checkFiniteAction, every, firstFailing, firstHole, firstNonFinite, isNumbers } from "./finite.js";
+export { every, firstFailing, firstHole, firstNonFinite, isNumbers } from "./finite.js";
+export { actuatorHeads, checkAction, CHUNK_HEADS, type DeclaredHeads } from "./actions.js";
+export { firstInexact, parseRaw, RawNumber, setOwn, unwrap, writeRaw, type RawJson } from "./json-raw.js";
 export { invert, mul3, quaternion, ROT6_MIN_NORM, rotationMatrix, rotvec, rpyMatrix, solveLinear, transpose3 } from "./linalg.js";
 export { extendPoses, headPoses, MAX_SOLVE_ROWS, SERVE, seamBlend, smoothPoses } from "./ik/decode.js";
 export { capStep, maxStep, solve, solveTraj, TRAJ_FEW_JOINTS_ORI_SCALE, TRAJ_WEIGHTS } from "./ik/solver.js";

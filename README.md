@@ -161,25 +161,26 @@ answer is parsed and written anew, never passed through**, and only in the shape
   or null, a text field longer than 64 KiB left out; `retryable` a boolean or null; `retry_after_s` a number or null;
   a field of another type is left out), `session_id` exactly as sent (one longer than 4096 characters withholds the
   answer), and of `timing` only `gateway_ms` and `serve_infer_ms`, when numbers (null, absent or unfamiliar timing is
-  dropped, the answer kept). With an OK code (`DA-0000`, `DA-0001`), `actions`: its actuator heads (`q_r_chunk`,
-  `q_l_chunk`, every part of `per_key`) null as a whole or arrays of finite numbers only (no null, string or object
-  where a joint value belongs), and its other keys, extensions, passed as plain JSON, as Python passes them. A
-  refusal's `actions` are left out.
+  dropped, the answer kept). With an OK code (`DA-0000`, `DA-0001`), `actions` as it came, when it keeps the
+  [action rules](#the-action-rules); one that breaks them is answered 502 `{ proxy_error: "action refused", detail }`,
+  which the client raises as a `DreamActionError`. A refusal's `actions` are not read at all, so nothing in them can
+  withhold its envelope.
 - The models list: each model's fields the client reads, each of its type. Training data: `cameras` and `prompts` as
   given; a prompt that is not a string, or longer than 64 KiB, withholds the answer rather than changing the list.
 - A refusal of the platform or the data service keeps its status (401 stays 401, so the client reports a key refusal
   and does not retry it), with `{ error: { code, message } }`, or a generic one when its own body does not fit or
   carries the key.
 
-**The proxy never delivers a number it changed**: an answer holding `1e400` (an infinity once parsed, which
-re-serialising would write as `null`) or an integer a double cannot hold exactly (`9007199254740993`) is withheld;
-`-0` is written `-0`. So is an answer that is not JSON or not of its shape (502, `upstream answer withheld`), and one
-in which any object key or string carries the key, by exact match of the configured key (and so `Bearer <key>`), as
-written or decoded from `\uXXXX` escapes, percent-encoding, or any run of base64, base64url or hex, at every alignment,
-two levels deep, or whose written text holds it (a key of digits echoed as a number). That is the guarantee: the key
-does not leave in those forms; a key split across strings or otherwise transformed is not detected. The check is
-bounded (`ANSWER_LIMITS`: 32 levels of nesting, strings of 64 KiB, keys and session ids of 4096 characters, a million
-values, counted before they are scheduled, and 4 MiB of decoding); an answer past a bound is withheld too.
+**The proxy never rewrites a number**: it reads the answer keeping each number's source text, and every number it
+passes on leaves byte-identical to how it arrived (`9007199254740993`, `1000000000000000128`, `-0`, `1E+2`); a number
+that reads as an infinity (`1e400`) is refused instead. An answer that is not JSON or not of its shape is withheld (502,
+`upstream answer withheld`), and so is one in which any object key, string or number token carries the key, by exact
+match of the configured key (and so `Bearer <key>`), as written or decoded from `\uXXXX` escapes, percent-encoding,
+or any run of base64, base64url or hex, at every alignment, two levels deep, or whose written text holds it. That is
+the guarantee: the key does not leave in those forms; a key split across strings or otherwise transformed is not
+detected. The check is bounded (`ANSWER_LIMITS`: 32 levels of nesting, strings of 64 KiB, keys and session ids of 4096
+characters, a million values kept for the whole answer, counted before they are scheduled and before anything is
+written, and 4 MiB of decoding); an answer past a bound is withheld too.
 
 **The key format is this proxy's policy** (Python sets none): at least 16 letters, digits or `._~+/=-`, no spaces. It
 keeps the exact match from hitting short field names (a key could still equal a longer one, such as
@@ -449,10 +450,9 @@ These differences are deliberate:
 - **Async.** `policy`, `getAction`, `resetEpisode` and `close` return promises. A second `getAction()` while one is
   in flight throws `DreamError`, where Python's thread lock does the same. `close()` aborts a call in flight (Python
   waits for it); a policy() superseded or closed mid-lookup opens nothing; `DreamCancelled` is TS-only.
-- **Numbers are checked.** Every actuator head of a reply (`q_r_chunk`, `q_l_chunk`, every `per_key` part, every
-  head the embodiment declares) must be null as a whole or arrays of finite numbers only: no NaN or infinity (JSON's
-  `1e400` reads as Infinity), null, hole, string or object where a joint value belongs, raw processing included.
-  Other keys are extensions, passed through as Python passes them. So must every returned row, the IK's targets, its answer and its diagnostics; a rotation_6d with a near-zero or parallel
+- **Numbers are checked.** A reply's action keeps the [action rules](#the-action-rules), raw processing and strict
+  off included; an integer a JavaScript number cannot hold exactly (`9007199254740993`) is refused before delivery,
+  read from the reply's text before parsing loses it. So must every returned row, the IK's targets, its answer and its diagnostics; a rotation_6d with a near-zero or parallel
   column is refused (Python divides by zero and returns NaN). A chunk extended from a single remaining pose holds it
   (Python's `extend_poses` divides by a zero span). `hz`, the speed caps and the horizon are range-checked.
 - **The final projection** (with `ik`, see above) is not in Python: Python's seam join after the IK can step a few
@@ -505,6 +505,38 @@ These differences are deliberate:
 - **A failed `policy()`** leaves no policy open once its model lookup has succeeded, as in Python: the previous
   policy is closed before the new one is built.
 - `setObservation()` without a timestamp uses `performance.now()`.
+
+## The action rules
+
+One definition (`src/actions.ts`), applied by the client and by the proxy, whatever `strict` says. Python returns the
+model's action dict with every key it does not filter untouched, and filters each arm's chunk through numpy, so a chunk
+that is not rectangular, or holds a leaf numpy cannot read as a number, is a `DreamActionError`. Here:
+
+- **Actuator heads** are `q_r_chunk`, `q_l_chunk`, every array-valued part of `per_key`, and the heads the embodiment
+  declares as numeric (a shape spec's action entries with a `shape`, an embodiment config's parts). Each is null as a
+  whole (kept, and not filtered), a finite number, or rectangular arrays whose every leaf is a finite number: no null,
+  string, boolean or object leaf, no hole. A chunk that is not two-dimensional rows (a bare number, a flat list, rows of
+  rows) comes back as the model answered it, as in Python; `ActionDict` says so, and `chunkRows(head)` gives the rows
+  or null.
+- **Every number** anywhere in the action is finite, extensions included.
+- **Metadata** passes as Python passes it: labels and other extensions of any JSON type, nulls included, a declared
+  head whose spec entry is empty, and `per_key` as a container (its non-array parts are labels). Keys named
+  `__proto__` stay keys.
+
+`test/fixtures/edge_replies.json` (`scripts/gen_edge_replies.py`, `npm run edge`) records what the installed Python
+client returns or raises for about a hundred edge replies, strict on and off; `test/edge-replies.test.ts` holds the
+client (default and raw processing) and the proxy to the same outcome, except these deliberate differences, each named
+by the cases it applies to:
+
+| Difference | Why |
+| --- | --- |
+| `checked_heads` | per_key's array parts and the embodiment's declared heads are checked as joint values whatever strict says: Python checks them only in strict mode |
+| `inexact_integer` | an integer a double cannot hold is refused before delivery: Python keeps it exact as an int, JavaScript cannot |
+| `non_finite` | a joint target or any number of an action is never NaN or an infinity: Python returns them (JSON's 1e400, a null sample filtered into NaN) |
+| `not_a_number` | a string, boolean or object where a joint value belongs is refused: numpy converts '0.5' and true, and Python returns other leaves of heads it does not filter |
+| `proxy_limit` | the proxy withholds a session id longer than 4096 characters rather than pass an unbounded value |
+| `python_error` | Python fails with numpy's ValueError (not a DreamError); this client refuses the reply as a DreamActionError |
+| `raw_unfiltered` | processing 'raw' (TypeScript only) runs no filter: a chunk Python's filter fails on is returned as it came |
 
 ## Not ported (gaps)
 

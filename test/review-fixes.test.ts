@@ -367,3 +367,76 @@ describe("fourth review, client side", () => {
     expect((error.cause as Error).message).toBe("fetch failed <api key>");
   });
 });
+
+describe("fifth review, client side", () => {
+  it("sends the key only to the URL it checked: a relative URL resolved as fetch resolves it, refused with no page", async () => {
+    const urls: string[] = [];
+    const fetch = async (url: string) => (urls.push(url), Response.json({ status: { code: "DA-0001", reason: "new" }, session_id: "s", actions: {} }));
+    const scope = globalThis as { document?: unknown; location?: unknown };
+    scope.document = { baseURI: "http://remote.example/app/" };
+    try {
+      expect(() => new PolicyClient({ checkpoint: "c", baseUrl: "/api/dream", apiKey: KEY, fetch })).toThrow(/plain http/);
+      const { Transport } = await import("../src/internal.js");
+      // Checked again where the key is attached, against the page as it is when the request is made.
+      const transport = new Transport({ baseUrl: "https://gateway.test", timeoutMs: 1000, apiKey: KEY, fetch });
+      (transport as unknown as { baseUrl: string }).baseUrl = "/api/dream";
+      await expect(transport.request({})).rejects.toThrow(/plain http/);
+      expect(urls).toEqual([]);
+    } finally {
+      delete scope.document;
+    }
+    scope.document = { baseURI: "https://app.example/base/page" };
+    scope.location = { href: "http://ignored.example/" };
+    try {
+      await new PolicyClient({ checkpoint: "c", baseUrl: "/api/dream", apiKey: KEY, fetch }).getAction({ prompt: "x" });
+      expect(urls).toEqual(["https://app.example/api/dream/v1/get_action"]);
+    } finally {
+      delete scope.document;
+      delete scope.location;
+    }
+    // No page to resolve against: with a key it is refused before anything is sent.
+    const { Transport } = await import("../src/internal.js");
+    const transport = new Transport({ baseUrl: "/api/dream", timeoutMs: 1000, apiKey: KEY, fetch });
+    await expect(transport.request({})).rejects.toThrow(/no page to resolve it against/);
+    await expect(callService("GET", "/v1/models", { url: "/api", apiKey: KEY, fetch })).rejects.toThrow(/no page to resolve it against/);
+    expect(urls).toHaveLength(1);
+  });
+
+  it("never lets a throwing message getter escape a platform call's last attempt", async () => {
+    const hostile = {
+      get message(): string {
+        throw new Error("getter exploded");
+      },
+      toString() {
+        throw new Error("no string either");
+      },
+    };
+    const error = (await callService("GET", "/v1/models", { url: "https://platform.test", apiKey: KEY, fetch: () => Promise.reject(hostile) }).catch((e: unknown) => e)) as Error;
+    expect(error.name).toBe("DreamProtocolError");
+    expect(error.message).toContain("(a value that cannot be shown)");
+  });
+
+  it("keeps an action key named __proto__ as a key, and a null head through default processing", async () => {
+    const reply = '{"status":{"code":"DA-0000"},"session_id":"s","actions":{"q_r_chunk":null,"__proto__":{"polluted":true},"per_key":{"__proto__":[[1,2]]}}}';
+    const action = await new PolicyClient({ checkpoint: "c", baseUrl: "https://gateway.test", fetch: async () => new Response(reply) }).getAction({ prompt: "x" });
+    expect(Object.getPrototypeOf(action)).toBe(Object.prototype);
+    expect(Object.keys(action).sort()).toEqual(["__proto__", "per_key", "q_r_chunk"]);
+    expect((action as Record<string, unknown>).polluted).toBeUndefined();
+    expect(Object.getOwnPropertyDescriptor(action, "__proto__")!.value).toEqual({ polluted: true });
+    expect(Object.keys(action.per_key!)).toEqual(["__proto__"]);
+    expect(action.q_r_chunk).toBeNull();
+  });
+
+  it("refuses an integer a double cannot hold before delivery, raw and with strict off", async () => {
+    for (const token of ["9007199254740993", "1000000000000000001"]) {
+      const reply = `{"status":{"code":"DA-0000"},"session_id":"s","actions":{"head":[[${token}]]}}`;
+      const client = new PolicyClient({ checkpoint: "c", baseUrl: "https://gateway.test", processing: "raw", strict: false, embodiment: { action: { head: { shape: [1, 1] } } }, fetch: async () => new Response(reply) });
+      await expect(client.getAction({ prompt: "x" }), token).rejects.toThrow(new RegExp(`integer ${token}`));
+    }
+    const exact = new PolicyClient({ checkpoint: "c", baseUrl: "https://gateway.test", processing: "raw", fetch: async () => new Response('{"status":{"code":"DA-0000"},"session_id":"s","actions":{"head":[[9007199254740992,1000000000000000128]]}}') });
+    expect(await exact.getAction({ prompt: "x" })).toEqual({ head: [[9007199254740992, 1000000000000000128]] });
+    // A declared [1,1] joint is checked whatever strict says: 1e400 is refused, raw included.
+    const infinite = new PolicyClient({ checkpoint: "c", baseUrl: "https://gateway.test", processing: "raw", strict: false, embodiment: { action: { head: { shape: [1, 1] } } }, fetch: async () => new Response('{"status":{"code":"DA-0000"},"session_id":"s","actions":{"head":[[1e400]]}}') });
+    await expect(infinite.getAction({ prompt: "x" })).rejects.toMatchObject({ name: "DreamActionError" });
+  });
+});

@@ -318,10 +318,16 @@ export class SeamSmoother {
 /** A chunk as rows of numbers; null for a shape that cannot be joined (not two-dimensional). */
 function numericRows(value: unknown, key: string): Rows | null {
   if (!Array.isArray(value)) {
-    if (ArrayBuffer.isView(value) || typeof value === "number") return null;
-    throw new DreamActionError(`action key '${key}' is not rows of numbers: got ${value === null ? "null" : typeof value}`);
+    // A null head is kept as it is, and so is a bare number, as Python leaves a chunk that is not two-dimensional.
+    if (ArrayBuffer.isView(value) || typeof value === "number" || value === null) return null;
+    throw new DreamActionError(`action key '${key}' is not rows of numbers: got ${typeof value}`);
   }
   if (!value.length) return null;
+  // Not two-dimensional (a flat list, or rows of rows): left as it is, as Python leaves it.
+  if (!Array.isArray(value[0]) && !ArrayBuffer.isView(value[0])) return null;
+  if (Array.isArray(value[0]) && value[0].some((item) => Array.isArray(item) || ArrayBuffer.isView(item))) return null;
+  // Rows of no value: Python's filter fails on them (numpy's ValueError); refused here.
+  if ((value[0] as ArrayLike<unknown>).length === 0) throw new DreamActionError(`action key '${key}' is rows of no values`, detail("shape", key, 0));
   // Holes first: every(), forEach() and map() skip them, so a sparse chunk would pass and be joined as `undefined`.
   const hole = firstHole(value);
   if (hole >= 0) throw new DreamActionError(`action key '${key}' is not rows of numbers: row ${hole} is a hole (a sparse array's missing element)`, detail("shape", key, hole));

@@ -6,7 +6,7 @@
  * --outfile=examples/browser-proxy/app.js`.
  */
 
-import { DREAM_1_BETA, DreamClient, type Model } from "@makermods/dreamlabs";
+import { chunkRows, DREAM_1_BETA, DreamClient, type Model } from "@makermods/dreamlabs";
 import { encodeJpegFrame } from "@makermods/dreamlabs/browser";
 
 const log = (text: string) => (document.querySelector("#log")!.textContent = text);
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     );
     if (client.refillDue(executed, rows.length - executed)) {
       // Awaited here for brevity (the arms would hold meanwhile): a real loop keeps playing rows while it waits.
-      rows = (await client.getAction()).q_r_chunk!;
+      rows = chunkRows((await client.getAction()).q_r_chunk) ?? [];
       executed = 0;
     }
     const row = rows[executed++];

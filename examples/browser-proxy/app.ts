@@ -11,8 +11,9 @@ import { encodeJpegFrame } from "@makermods/dreamlabs/browser";
 
 const log = (text: string) => (document.querySelector("#log")!.textContent = text);
 
-// proxyHeaders: the page sends Dream-Client-Instance, and the proxy builds the User-Agent the page cannot set.
-const client = new DreamClient({ baseUrl: "/api/dream", platformUrl: "/api/dream-platform", proxyHeaders: true });
+// Every call goes to the proxy (server.ts), which adds the key; the page sends Dream-Client-Version and
+// Dream-Client-Instance, and the proxy builds the User-Agent the page cannot set.
+const client = new DreamClient({ proxyUrl: "/api/dream" });
 
 /** The body the cameras and arms are, for the checks and for sending the YAM-trained model its camera slots. */
 const parts = { arm: 6, gripper: 1, eef_xyz: 3, eef_rot6: 6, grip: 1 };

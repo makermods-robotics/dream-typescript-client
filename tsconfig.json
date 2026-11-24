@@ -14,11 +14,13 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "paths": {
       "@makermods/dreamlabs": ["./src/index.ts"],
       "@makermods/dreamlabs/ik": ["./src/ik/index.ts"],
       "@makermods/dreamlabs/node": ["./src/node/index.ts"],
       "@makermods/dreamlabs/browser": ["./src/browser.ts"],
+      "@makermods/dreamlabs/proxy": ["./src/proxy.ts"],
       "@makermods/dreamlabs/internal": ["./src/internal.ts"]
     }
   },

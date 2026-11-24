@@ -109,6 +109,11 @@ export class ObservationWindow {
     return out;
   }
 
+  /** The episode's frame keys (`_window.Window.frame_keys`): which keys of buildObservation() are frame windows. */
+  frameKeys(): ReadonlySet<string> {
+    return new Set(this.rings.keys());
+  }
+
   /** Forgets the episode: the frames, the latest observation and the schedule; the next tick is a first one. */
   clear(): void {
     this.rings = new Map();

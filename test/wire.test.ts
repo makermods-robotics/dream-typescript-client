@@ -1,17 +1,19 @@
 /**
- * The client against a mock DreamAPI server that replays what the Python `dream.DreamClient` 1.0.8 sent and was
- * answered (scripts/gen_fixtures.py, wire.json): every request the TypeScript client sends must be the one Python sent
- * (method, path, headers, JSON body), and every answer it returns the one Python returned.
+ * The client against a mock DreamAPI server that replays what the Python `dream.DreamClient` sent and was answered
+ * (scripts/gen_fixtures.py, wire.json): every request the TypeScript client sends must be the one Python sent (method,
+ * path, headers, JSON body), every answer it returns the one Python returned, every round trip it hands onRoundTrip()
+ * the one Python handed on_round_trip(), and every line it warns about a fine-tune's training inputs Python's.
  */
 
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CLIENT_VERSION, DreamClient, UPSTREAM, type PolicyConfig } from "../src/index.js";
+import { CLIENT_VERSION, DreamClient, DreamTrainingWarning, UPSTREAM, type PolicyConfig, type RoundTrip } from "../src/index.js";
 import { CEILINGS } from "../scripts/fidelity.js";
 import { expectClose, fixture, maxDiff } from "./helpers.js";
 
 const wire = fixture("wire.json");
+const upstreamVersion = UPSTREAM.dreamlabsClient.replace(/\./g, "\\.");
 
 interface Expected {
   method: string;
@@ -58,12 +60,23 @@ beforeAll(async () => {
     try {
       expect(request.method).toBe(expected.method);
       expect(request.url).toBe(expected.path);
+      if (expected.method === "GET") {
+        // The data service's training_data: the platform call's headers, as `dream.datasets._call` sends them.
+        expect(request.headers.authorization).toBe(expected.headers.Authorization);
+        expect(request.headers.accept).toBe(expected.headers.Accept);
+        expect(expected.headers["User-Agent"]).toBe(`dream-client/${UPSTREAM.dreamlabsClient}`);
+        expect(request.headers["user-agent"]).toBe(`dream-client/${CLIENT_VERSION}`);
+        expect(text).toBe("");
+        expect(expected.body).toBeNull();
+        send(expected.reply.status, expected.reply.body);
+        return;
+      }
       expect(request.headers["content-type"]).toBe(expected.headers["Content-Type"]);
       expect(request.headers.authorization).toBe(expected.headers.Authorization);
       // Python names its semver; this client names itself, deliberately not a semver (src/version.ts).
       expect(expected.headers["Dream-Client-Version"]).toBe(UPSTREAM.dreamlabsClient);
       expect(request.headers["dream-client-version"]).toBe(CLIENT_VERSION);
-      expect(expected.headers["User-Agent"]).toMatch(/^dream-client\/1\.0\.8 [0-9a-f]{8}$/);
+      expect(expected.headers["User-Agent"]).toMatch(new RegExp(`^dream-client/${upstreamVersion} [0-9a-f]{8}$`));
       expect(request.headers["user-agent"]).toBe(`dream-client/${CLIENT_VERSION} ${request.headers["user-agent"]!.slice(-8)}`);
       expect(request.headers["user-agent"]).toMatch(/ [0-9a-f]{8}$/);
       // The tool poses Python sends are dream_ik's float32 forward kinematics; ours are float64.
@@ -122,13 +135,25 @@ describe("DreamClient against the Python client's wire", () => {
       models = scenario.models;
       failures.length = 0;
       modelRequests = 0;
-      const client = new DreamClient({ apiKey: "dk_test_key", baseUrl: url, platformUrl: url, now: () => clock.ms, onWarning: () => {} });
-      let pythonModelRequests = 0;
+      const warnings: string[] = [];
+      const trips: RoundTrip[] = [];
+      const client = new DreamClient({
+        apiKey: "dk_test_key",
+        baseUrl: url,
+        platformUrl: url,
+        dataUrl: url,
+        now: () => clock.ms,
+        onWarning: (warning) => void (warning instanceof DreamTrainingWarning && warnings.push(warning.message)),
+      });
+      client.onRoundTrip((trip) => void trips.push(trip));
       let ik = false;
       for (const [index, step] of scenario.steps.entries()) {
         const label = `step ${index} (${step.op})`;
+        warnings.length = 0;
+        trips.length = 0;
+        modelRequests = 0;
         queue = step.requests.filter((r: Expected) => r.path !== "/v1/models");
-        pythonModelRequests += step.requests.length - queue.length;
+        const pythonListings = step.requests.length - queue.length;
         let result: { value?: unknown; error?: any };
         if (step.op === "policy") {
           ik = "ik" in step.config;
@@ -154,6 +179,20 @@ describe("DreamClient against the Python client's wire", () => {
         }
         expect(failures, label).toEqual([]);
         expect(queue.map((r) => r.path), `${label}: requests Python sent that we did not`).toEqual([]);
+        expect(warnings, `${label}: training warnings`).toEqual(step.warnings);
+        // One models listing per policy() where Python makes one or more: this client reuses one listing for the
+        // embodiment config and the IK's record within a call, where Python lists the models for each.
+        expect(modelRequests, `${label}: model listings`).toBe(Math.min(pythonListings, 1));
+        expect(trips.length, `${label}: round trips`).toBe(step.round_trips.length);
+        trips.forEach((trip, i) => {
+          const want = step.round_trips[i];
+          expect(trip.frames, `${label}: round trip frames`).toEqual(want.frames);
+          expectClose(trip.observation, want.observation, 1e-12, `${label}: round trip observation`);
+          expect(trip.action === null ? null : trip.action === result.value ? "returned" : "other", `${label}: round trip action`).toBe(want.action);
+          expect(trip.timing && { serve_infer_ms: trip.timing.serveInferMs, gateway_ms: trip.timing.gatewayMs }, `${label}: round trip timing`).toEqual(want.timing);
+          expect(trip.error?.name ?? null, `${label}: round trip error`).toBe(want.error);
+          expect(trip.trained, `${label}: round trip lines`).toEqual(want.trained);
+        });
         if (step.error) {
           expectError(step, result.error);
           continue;
@@ -179,7 +218,6 @@ describe("DreamClient against the Python client's wire", () => {
         }
         if (step.op === "reset_episode") expect(client.sessionId).toBe(step.result.session_id);
       }
-      expect(modelRequests > 0).toBe(pythonModelRequests > 0);
       await client.close();
     });
   }

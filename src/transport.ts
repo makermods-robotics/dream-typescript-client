@@ -103,9 +103,11 @@ export interface TransportOptions {
   proxyHeaders?: boolean;
 }
 
-/** True where `User-Agent` cannot be set on a request (a browser page or worker). */
-const IN_BROWSER = typeof (globalThis as { document?: unknown }).document !== "undefined" ||
-  typeof (globalThis as { WorkerGlobalScope?: unknown }).WorkerGlobalScope !== "undefined";
+/** True where `User-Agent` cannot be set on a request (a browser page or worker); read when a request is built. */
+export function inBrowser(): boolean {
+  return typeof (globalThis as { document?: unknown }).document !== "undefined" ||
+    typeof (globalThis as { WorkerGlobalScope?: unknown }).WorkerGlobalScope !== "undefined";
+}
 
 /** Request/reply channel to one DreamAPI gateway (`transport.Transport`). One request at a time; the client serialises. */
 export class Transport {
@@ -135,7 +137,7 @@ export class Transport {
     this.#headers = {
       "Content-Type": "application/json",
       [CLIENT_VERSION_HEADER]: version,
-      ...(options.proxyHeaders ? { [CLIENT_INSTANCE_HEADER]: this.instance } : IN_BROWSER ? {} : { "User-Agent": `${USER_AGENT_PRODUCT}/${version} ${this.instance}` }),
+      ...(options.proxyHeaders ? { [CLIENT_INSTANCE_HEADER]: this.instance } : inBrowser() ? {} : { "User-Agent": `${USER_AGENT_PRODUCT}/${version} ${this.instance}` }),
       ...(options.apiKey ? authorization(options.apiKey) : {}),
       ...options.headers,
     };

@@ -12,6 +12,8 @@ import {
   DreamProtocolError,
   DreamTimeout,
   PolicyClient,
+  UPSTREAM,
+  VERSION,
   type Diagnostics,
 } from "../src/index.js";
 import { Transport } from "../src/transport.js";
@@ -286,8 +288,10 @@ describe("the lifecycle", () => {
 
 describe("the client identity", () => {
   it("names this package, deliberately not a semver, and takes an override", async () => {
-    expect(CLIENT_VERSION).toMatch(/^makermods-dreamlabs-ts-\d+\.\d+\.\d+\+dream-1\.0\.8$/);
-    expect(CLIENT_VERSION).not.toMatch(/^\d+\.\d+\.\d+$/);
+    expect(CLIENT_VERSION).toBe(`makermods-dreamlabs-ts-${VERSION}+dream-${UPSTREAM.dreamlabsClient}`);
+    expect(UPSTREAM.dreamlabsClient).toMatch(/^\d+\.\d+\.\d+$/);
+    // Neither MAJOR.MINOR.PATCH nor starting with one, so the gateway's parts guard refuses it however it matches.
+    expect(CLIENT_VERSION).not.toMatch(/^\d+\.\d+\.\d+/);
     const { fetch, seen } = stub();
     await new PolicyClient({ checkpoint: "c", ...urls, fetch }).getAction(observation);
     expect(seen[0]!.headers["dream-client-version"]).toBe(CLIENT_VERSION);

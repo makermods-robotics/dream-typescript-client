@@ -80,7 +80,7 @@ export function resolveCredentials(
   }
   for (const name of [GATEWAY_URL_ENV, PLATFORM_URL_ENV, DATA_URL_ENV]) {
     const value = values[name];
-    if (value) checkServiceUrl(value[0], `${name} (from ${value[1]})`, false);
+    if (value) value[0] = checkServiceUrl(value[0], `${name} (from ${value[1]})`, false);
   }
   return {
     gatewayUrl: values[GATEWAY_URL_ENV]?.[0] ?? DEFAULT_GATEWAY_URL,
@@ -94,14 +94,18 @@ export function resolveCredentials(
 /**
  * Checks a service URL. Credentials name `http(s)://<host>[:<port>]` with no path (`credentials._check_url`); a
  * client's `baseUrl` may also carry a path (a proxy mount such as `/api/dream`) or be relative to the page
- * (`allowPath`), and the requests go to `<baseUrl>/v1/...`.
+ * (`allowPath`), and the requests go to `<baseUrl>/v1/...`. A query or fragment marker (even an empty `?` or `#`),
+ * a user name or password in the URL, or any scheme but http(s) is refused: appending `/v1/...` must stay in the path.
  *
- * @returns The URL without a trailing slash.
+ * @returns The URL as parsed: its origin (and, with `allowPath`, its path), without a trailing slash; a relative
+ *   path as given, without a trailing slash.
  */
 export function checkServiceUrl(url: string, what: string, allowPath: boolean): string {
   if (typeof url !== "string" || !url) throw new DreamConfigError(`${what} must be a URL, got ${JSON.stringify(url)}`);
+  const shape = `${what} must be http(s)://<host>[:<port>]${allowPath ? "[/<path>]" : " with no path"}, with no query, fragment or user name, e.g. https://api.example.com, got ${JSON.stringify(url)}`;
+  if (/[?#\s\\]/.test(url)) throw new DreamConfigError(shape);
   const trimmed = url.replace(/\/+$/, "");
-  if (allowPath && (trimmed === "" || trimmed.startsWith("/"))) return trimmed;
+  if (allowPath && (trimmed === "" || (trimmed.startsWith("/") && !trimmed.startsWith("//")))) return trimmed;
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -109,12 +113,10 @@ export function checkServiceUrl(url: string, what: string, allowPath: boolean): 
     throw new DreamConfigError(`${what} is not a URL: ${JSON.stringify(url)}`);
   }
   const pathless = parsed.pathname === "" || parsed.pathname === "/";
-  if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || parsed.search || parsed.hash || (!allowPath && !pathless)) {
-    throw new DreamConfigError(
-      `${what} must be http(s)://<host>[:<port>]${allowPath ? "[/<path>]" : " with no path"}, e.g. https://api.example.com, got ${JSON.stringify(url)}`,
-    );
+  if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password || (!allowPath && !pathless)) {
+    throw new DreamConfigError(shape);
   }
-  return trimmed;
+  return allowPath ? `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}` : parsed.origin;
 }
 
 /**

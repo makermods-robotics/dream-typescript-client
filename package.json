@@ -26,6 +26,10 @@
       "types": "./dist/browser.d.ts",
       "default": "./dist/browser.js"
     },
+    "./proxy": {
+      "types": "./dist/proxy.d.ts",
+      "default": "./dist/proxy.js"
+    },
     "./internal": {
       "types": "./dist/internal.d.ts",
       "default": "./dist/internal.js"
@@ -40,13 +44,14 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.core.json",
     "test": "vitest run",
     "fidelity": "node scripts/fidelity.mjs",
-    "fixtures": "../dreamlabs-venv/bin/python -I scripts/gen_fixtures.py",
-    "fixtures:check": "../dreamlabs-venv/bin/python -I scripts/gen_fixtures.py --check-unpatched",
-    "arms": "../dreamlabs-venv/bin/python -I scripts/gen_arms.py"
+    "fixtures": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_fixtures.py",
+    "fixtures:check": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_fixtures.py --check-unpatched",
+    "casefold": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_casefold.py",
+    "arms": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_arms.py"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

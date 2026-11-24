@@ -166,3 +166,15 @@ export class DreamSessionExpired extends DreamServerError {
 export class DreamSlowNetworkWarning extends Error {
   override name = "DreamSlowNetworkWarning";
 }
+
+/**
+ * Not an error: the frames or the prompt a fine-tune is sent differ from what it was trained on, or what it was trained
+ * on could not be read (`dream.trained_inputs`, a `UserWarning` in Python). Handed to the client's `onWarning`, each
+ * line once a policy, never thrown.
+ */
+export class DreamTrainingWarning extends Error {
+  override name = "DreamTrainingWarning";
+}
+
+/** What a client hands its `onWarning`. */
+export type DreamWarning = DreamSlowNetworkWarning | DreamTrainingWarning;

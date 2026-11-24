@@ -5,7 +5,7 @@
 
 import { API_KEY_ENV, authorization, KEY_PER_SITE } from "./credentials.js";
 import { DreamAuthError, DreamConfigError, DreamProtocolError, DreamServerError } from "./errors.js";
-import { cancelled, type FetchLike } from "./transport.js";
+import { cancelled, inBrowser, type FetchLike } from "./transport.js";
 import { CLIENT_VERSION } from "./version.js";
 
 /** The public Dream-1 checkpoints, as the platform lists them in 2026-10. */
@@ -46,6 +46,10 @@ export interface ServiceOptions {
   headers?: Record<string, string>;
   /** Cancels the call, retries and backoff included ({@link DreamCancelled}). */
   signal?: AbortSignal;
+  /** The version the `User-Agent` names, `dream-client/<version>`; {@link CLIENT_VERSION} by default. */
+  clientVersion?: string;
+  /** `url` is your proxy: send the version as `Dream-Client-Version` too, for it to build the `User-Agent` upstream. */
+  proxyHeaders?: boolean;
 }
 
 const TIMEOUT_MS = 60_000;
@@ -62,9 +66,12 @@ export async function callService(method: string, path: string, options: Service
   if (!options.apiKey && /(^|\.)dreamlabs\.ai(:\d+)?$/.test(hostOf(url))) {
     throw new DreamConfigError(`no api key: pass apiKey, or set ${API_KEY_ENV} (Node: @makermods/dreamlabs/node loadCredentials())`);
   }
+  const version = options.clientVersion ?? CLIENT_VERSION;
   const headers: Record<string, string> = {
     Accept: "application/json",
-    ...(typeof (globalThis as { document?: unknown }).document === "undefined" ? { "User-Agent": `dream-client/${CLIENT_VERSION}` } : {}),
+    // A page or a worker cannot set it, and behind a proxy the proxy names the client.
+    ...(inBrowser() || options.proxyHeaders ? {} : { "User-Agent": `dream-client/${version}` }),
+    ...(options.proxyHeaders ? { "Dream-Client-Version": version } : {}),
     ...(options.apiKey ? authorization(options.apiKey) : {}),
     ...(body === undefined ? {} : { "Content-Type": "application/json" }),
     ...options.headers,
@@ -92,7 +99,7 @@ export async function callService(method: string, path: string, options: Service
       if (signal?.aborted) throw cancelled(signal, `${what} was cancelled`);
       if (attempt + 1 >= attempts) {
         const why = timeout.aborted ? `no answer within ${TIMEOUT_MS / 1000} s` : error instanceof Error ? error.message : String(error);
-        throw new DreamProtocolError(`cannot reach the Dream service at ${url}: ${why}`, { cause: error });
+        throw new DreamProtocolError(`cannot reach the Dream service at ${url}: ${scrub(why, options.apiKey)}`);
       }
       await sleep(backoffS(attempt), signal, what);
       continue;
@@ -102,11 +109,16 @@ export async function callService(method: string, path: string, options: Service
       await sleep(backoffS(attempt), signal, what);
       continue;
     }
-    return answer(status, text, url);
+    return answer(status, text, url, options.apiKey);
   }
 }
 
-function answer(status: number, text: string, url: string): unknown {
+/** `text` with the key cut out: a service that echoes the request must not put the key in a message or a log. */
+export function scrub(text: string, secret: string | null | undefined): string {
+  return secret ? text.split(secret).join("<api key>") : text;
+}
+
+function answer(status: number, text: string, url: string, secret: string | null | undefined): unknown {
   let decoded: unknown = null;
   try {
     decoded = text ? JSON.parse(text) : null;
@@ -116,7 +128,7 @@ function answer(status: number, text: string, url: string): unknown {
   if (status < 400) return decoded;
   const envelope = isRecord(decoded) && isRecord(decoded.error) ? decoded.error : null;
   const code = typeof envelope?.code === "string" ? envelope.code : null;
-  const message = (typeof envelope?.message === "string" && envelope.message) || `the Dream service answered ${status}`;
+  const message = scrub((typeof envelope?.message === "string" && envelope.message) || `the Dream service answered ${status}`, secret);
   if (status === 401 || status === 403) throw new DreamAuthError(`${message}; called ${url}; ${KEY_PER_SITE}`, { code });
   throw new DreamServerError(message, { code, retryable: status >= 500 });
 }

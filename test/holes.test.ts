@@ -178,12 +178,11 @@ describe("observations and configs", () => {
     expect(() => compileChecks({ state: { "arm_r.joint_pos": { shape: holed([6, 1], 1) } } })).toThrow(/expected a list of ints/);
   });
 
-  it("an arm file with a sparse rest, tcp or fixed is refused", () => {
+  it("an arm file with a sparse rest or tcp is refused", () => {
     const urdf = readFileSync(new URL("./fixtures/metal.urdf", import.meta.url), "utf8");
     const file = { base: "base_link", flange: "link6", tcp: [0.135, 0, 0], approach: [1, 0, 0], jaw: [0, 1, 0], rest: [0, -1.2, 1.5, 0, 0, 0] };
     expect(() => defineArm(file, urdf)).not.toThrow();
     expect(() => defineArm({ ...file, rest: holed(file.rest, 4) }, urdf)).toThrow(DreamConfigError);
     expect(() => defineArm({ ...file, tcp: holed(file.tcp, 1) }, urdf)).toThrow(/tcp must be 3 numbers/);
-    expect(() => defineArm({ ...file, fixed: holed(["joint6", "joint5"], 0) }, urdf)).toThrow(/fixed must be a list of joint names/);
   });
 });

@@ -20,6 +20,7 @@ import {
   DreamServerError,
   DreamSessionExpired,
   DreamSlowNetworkWarning,
+  type DreamWarning,
 } from "./errors.js";
 import { Pacer, type PacingMode } from "./pacing.js";
 import type { Kinematics } from "./seam-join.js";
@@ -31,7 +32,7 @@ import { pyList, snapshot } from "./window.js";
 
 /** The robot a model trained on YAM arms runs on, as the serve reads it. */
 export const YAM = "yam";
-/** Any other robot: the serve withholds the arm's state (all zeros) and answers no joint head. */
+/** Any other robot: the serve may ignore the arm's state, and answers no joint head (only each hand's pose). */
 export const OTHER_EMBODIMENT = "other_embodiment";
 export const ROBOTS = [YAM, OTHER_EMBODIMENT] as const;
 export type Robot = (typeof ROBOTS)[number];
@@ -44,6 +45,21 @@ export const UNAVAILABLE = "DA-2000";
 export const BAD_REQUEST = "DA-4000";
 export const SERVE_FAILED = "DA-5000";
 export const INTERNAL = "DA-6000";
+/**
+ * Per envelope code, the reasons the gateway answers it with (`shared.contracts.envelope`, dreamlabs 1.0.42): what
+ * {@link DreamServerError.reason} holds. `DA-4000 client_outdated` is also what a checkpoint whose robot has parts
+ * answers this package ({@link CLIENT_VERSION}).
+ */
+export const REASONS = {
+  [OK_NEW_SESSION]: ["new", "expired", "unknown", "serve_died"],
+  [UNAUTHORIZED]: ["missing", "unknown_key", "disabled", "over_cap", "not_entitled", "region_not_supported"],
+  [UNAVAILABLE]: ["pool_full", "pool_warming", "rate_limited", "queue_timeout", "max_serves"],
+  [BAD_REQUEST]: ["malformed", "too_large", "unknown_op", "invalid_session_id", "global_op_rejected", "unknown_checkpoint", "client_outdated"],
+  [SERVE_FAILED]: ["timeout", "error", "unreachable", "capacity"],
+  [INTERNAL]: ["internal", "store_write_failed", "cannot_scale", "service_unavailable", "connection_timed_out"],
+} as const;
+/** A reason the gateway answers a code with ({@link REASONS}). */
+export type DreamReason = (typeof REASONS)[keyof typeof REASONS][number];
 /** Timeout of the session release resetEpisode() and close() send: a release, best effort. */
 export const END_SESSION_TIMEOUT_MS = 2000;
 /** Default per-request timeout, milliseconds. */
@@ -234,7 +250,7 @@ export interface PolicyClientOptions {
   /** `baseUrl` is your proxy: send `Dream-Client-Instance` (8 hex) for it to build the `User-Agent` upstream. */
   proxyHeaders?: boolean;
   /** Receives a {@link DreamSlowNetworkWarning}; `console.warn` by default. */
-  onWarning?: (warning: DreamSlowNetworkWarning) => void;
+  onWarning?: (warning: DreamWarning) => void;
   /** Receives the {@link Diagnostics} of every successful getAction(); never throws out of it. */
   onDiagnostics?: (diagnostics: Diagnostics) => void;
   /** The clock, milliseconds on a monotonic scale; `performance.now` by default. */
@@ -261,7 +277,7 @@ export class PolicyClient {
   private readonly pacer: Pacer;
   private readonly transport: Transport;
   private readonly watch = new Watch();
-  private readonly onWarning: (warning: DreamSlowNetworkWarning) => void;
+  private readonly onWarning: (warning: DreamWarning) => void;
   private readonly onDiagnostics: ((diagnostics: Diagnostics) => void) | null;
   private readonly now: () => number;
   private timing: Timing | null = null;

@@ -77,9 +77,10 @@ describe("defineArm refuses a malformed URDF", () => {
     expect(defineArm(file, narrow).sideArm("right").lo[2]).toBeLessThan(defineArm(file, narrow).sideArm("right").hi[2]!);
   });
 
-  it("takes a continuous joint as revolute within [-pi, pi]", () => {
-    const model = defineArm(file, edit('name="joint6" type="revolute"', 'name="joint6" type="continuous"')).sideArm("right");
-    expect(model.data.limits[5]).toEqual([-Math.PI, Math.PI]);
+  it("refuses a continuous joint and the key `fixed`, as dream.arm_file 1.1", () => {
+    refuses(edit('name="joint6" type="revolute"', 'name="joint6" type="continuous"'), /joint 'joint6' between 'base_link' and 'link6' is continuous; the chain takes fixed joints, and revolute and prismatic joints with limits/);
+    expect(() => defineArm({ ...file, fixed: ["joint6"] } as typeof file, metalUrdf)).toThrow(/arm file must be an object with the keys \['urdf', 'base', 'flange', 'tcp', 'approach', 'jaw', 'rest'\], and maybe \['tcp_calibration'\], got \[.*'fixed'/);
+    expect(() => defineArm({ ...file, tcp_calibration: { at: "2026-11-01" } }, metalUrdf)).not.toThrow();
   });
 
   it("keeps rest inside the URDF limits, as Python", () => {

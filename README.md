@@ -10,9 +10,11 @@ TypeScript counterpart of the Python `dreamlabs-client` package (module `dream`)
   smoothing and the IK are ports of the upstream code, tested against golden fixtures from the Python packages and
   an end-to-end replay of what `dream.DreamClient` sends and receives. See [Fidelity](#fidelity) for what exactly is
   covered, and [Where this differs from Python](#where-this-differs-from-python) for the deliberate departures.
-- **Tracks** `dreamlabs` **1.0.17** and `dreamlabs-client` **1.0.8** (`UPSTREAM` in `src/version.ts`).
-- **Honest client identity.** Every request names `makermods-dreamlabs-ts-<version>+dream-1.0.8` in
+- **Tracks** `dreamlabs` **1.0.42** and `dreamlabs-client` **1.1.7** (`UPSTREAM` in `src/version.ts`).
+- **Honest client identity.** Every request names `makermods-dreamlabs-ts-<version>+dream-1.1.7` in
   `Dream-Client-Version` (`CLIENT_VERSION`), deliberately not a semver. See [Client identity](#client-identity).
+- **A proxy for browser apps.** `@makermods/dreamlabs/proxy` forwards the client's calls with your key added, as a
+  standard fetch handler for Node, Cloudflare Workers, Deno and Bun. See [The proxy](#the-proxy).
 
 > Status: 0.1.0, local and unpublished (`"private": true` in package.json). Remove `private` before publishing.
 > The license is TBD (see LICENSE).
@@ -24,19 +26,20 @@ npm install @makermods/dreamlabs          # once published
 npm install /path/to/dreamlabs-ts          # today: from a checkout (run `npm run build` in it first)
 ```
 
-ESM only. The 0.x public API is four entry points; a fifth holds the internals:
+ESM only. The 0.x public API is five entry points; a sixth holds the internals:
 
 | Import                          | What                                                                                       |
 | ------------------------------- | ------------------------------------------------------------------------------------------ |
 | `@makermods/dreamlabs`          | `DreamClient`, `PolicyClient`, `ObservationWindow`, `Pacer`, `SeamSmoother`, the errors, the types. No Node built-ins. |
 | `@makermods/dreamlabs/ik`       | `arm`, `embodiment`, `defineArm`, `solveChunk`, `ClientIK` (FK/IK for the dream_ik arms), `matToRot6`/`rot6ToMat`. Arm data bundled. |
-| `@makermods/dreamlabs/node`     | `loadCredentials()` / `createClient()`: `~/.dreamlabs/credentials` and `DREAM_*` variables. |
+| `@makermods/dreamlabs/node`     | `loadCredentials()` / `createClient()`: `~/.dreamlabs/credentials` and `DREAM_*` variables (the gateway, platform and data service, and the key; with `proxyUrl`, none of them); `nodeHandler()`: a fetch handler on `node:http`. |
 | `@makermods/dreamlabs/browser`  | `encodeJpegFrame()`, `bytesToBase64()`, `CONSOLE_FRAME`: camera frames as base64 JPEG.     |
+| `@makermods/dreamlabs/proxy`    | `createDreamProxy()`: the server side of a browser app, a fetch handler that adds the key. No Node built-ins. |
 | `@makermods/dreamlabs/internal` | Everything else (the wire, `Transport`, the envelope codes, the strict checks, the seam join's helpers, the solver, `Wire`, `parseXml`, ...). **No stability promise**: for tests and experiments. |
 
 `sideEffects: false`, and the IK is imported lazily (a dynamic `import()`) only when a policy names `ik`, so a
-bundler splits it out. With esbuild (minified, ESM, splitting), the main entry is about 52 KB (two chunks) and the
-IK chunk about 57 KB; no chunk imports a `node:` module.
+bundler splits it out. With rolldown (minified, ESM), the main entry is about 64 KB (two chunks), the IK chunk about
+59 KB and the proxy entry about 6 KB; no chunk imports a `node:` module.
 
 ## Quick start: Node
 
@@ -70,49 +73,140 @@ the embodiment config.
 
 ## Quick start: browser, through your own proxy
 
-Never ship an API key to a browser. Point the client at a server of yours that adds the key, as the MakerMods
-console does:
+Never ship an API key to a browser. Point the page's client at a proxy of yours with one option, and run the proxy
+on your server:
 
 ```ts
+// the page
 import { DreamClient } from "@makermods/dreamlabs";
-
 import { encodeJpegFrame } from "@makermods/dreamlabs/browser";
 
-// no apiKey; proxyHeaders: the proxy builds the gateway's User-Agent from Dream-Client-Version and -Instance
-const client = new DreamClient({ baseUrl: "/api/dream", platformUrl: "/api/dream-platform", proxyHeaders: true });
+const client = new DreamClient({ proxyUrl: "/api/dream" }); // no apiKey
 await client.policy({ checkpoint: "dreamlabs/dream-1-beta", embodiment, ik: { arm: "so101_faas", head: "eef" } });
 client.setObservation({ "video.front": await encodeJpegFrame(video), /* ... */ }, observation);
 const chunk = await client.getAction();
 ```
 
-The proxy forwards `POST /v1/get_action` and `POST /v1/end_session` to the gateway (`DREAM_GATEWAY_URL`), and
-`GET /v1/models` to the platform (`DREAM_API_URL`). It adds `Authorization: Bearer <key>` and passes the bodies
-through unchanged. A browser cannot set `User-Agent`, so with `proxyHeaders: true` the client sends
-`Dream-Client-Version` and `Dream-Client-Instance` (8 random hex digits per policy), and the proxy builds
-`User-Agent: dream-client/<version> <instance>` upstream, as the MakerMods console's proxies do (they check
-`^[0-9a-f]{8}$`). [`examples/browser-proxy/`](examples/browser-proxy/) has a Node proxy (Host and Origin checks, a
-body-size limit) and a page. A deployed proxy needs your own authentication in front of it.
+```ts
+// the server (a Cloudflare Worker here; see The proxy for Node, Deno and Bun)
+import { createDreamProxy } from "@makermods/dreamlabs/proxy";
+
+export default {
+  fetch: (request: Request, env: { DREAM_API_KEY: string }) =>
+    createDreamProxy({
+      apiKey: env.DREAM_API_KEY,
+      allowedHosts: "any", // the Worker's routes decide which names reach it
+      allowedOrigins: ["https://app.example.com"],
+      basePath: "/api/dream",
+      authorize: yourSignIn,
+    })(request),
+};
+```
+
+`proxyUrl` is the default of `baseUrl`, `platformUrl` and `dataUrl`, and turns `proxyHeaders` on: a browser cannot
+set `User-Agent`, so the client sends `Dream-Client-Version` and `Dream-Client-Instance` (8 random hex digits per
+policy), and the proxy builds `User-Agent: dream-client/<version> <instance>` upstream, as the Python client sends it.
+[`examples/browser-proxy/`](examples/browser-proxy/) has a Node server and a page.
 
 If your proxy does not forward `/v1/models`, pass the model record yourself (`policy({ ..., model })`) or give
 `embodiment` and `strict: false`. `policy()` reads the record to learn what the model was trained on, which `ik`
 needs and strict mode uses.
+
+## The proxy
+
+`createDreamProxy(options)` from `@makermods/dreamlabs/proxy` returns a standard fetch handler,
+`(request: Request) => Promise<Response>`: `export default { fetch }` on Cloudflare Workers and Bun,
+`Deno.serve(handler)`, and on Node 22 `createServer(nodeHandler(handler))` with `nodeHandler` from
+`@makermods/dreamlabs/node`. It forwards only what the client calls, under `basePath`:
+
+| Request                                                  | Goes to                                     |
+| -------------------------------------------------------- | ------------------------------------------- |
+| `POST /v1/get_action`, `POST /v1/end_session`             | the gateway (`gatewayUrl`, `DREAM_GATEWAY_URL`) |
+| `GET /v1/models`                                          | the platform (`platformUrl`, `DREAM_API_URL`) |
+| `GET /v1/fine_tuning/models/<fine-tune>/training_data`    | the data service (`dataUrl`, `DREAM_DATA_URL`), only for a `dream-1-ft:` id |
+
+```ts
+createDreamProxy({
+  apiKey,              // required: added as Authorization: Bearer on every forwarded request
+  allowedHosts,        // required: the Host names answered (421 otherwise), or "any" behind a router (below)
+  allowedOrigins?,     // page origins answered (CORS headers and preflight); none by default, no wildcard
+  basePath?,           // where it is mounted, e.g. "/api/dream"
+  gatewayUrl?, platformUrl?, dataUrl?,  // production by default; reduced to their origin
+  clientVersion?,      // the client version sent upstream; CLIENT_VERSION by default
+  maxBodyBytes?,       // 8 MiB by default (413 above it, declared or streamed)
+  uploadTimeoutMs?,    // 30 s by default for the body to arrive (408 after it)
+  maxResponseBytes?,   // 16 MiB by default (502 above it)
+  timeoutMs?,          // 70 s by default for the upstream call, answer included (504 after it; 502 unreachable)
+  allowedHeaders?,     // extra request headers a page may send (your sign-in header), for the preflight
+  authorize?,          // your sign-in, given the request without its body: true | false (401) | a Response
+  fetch?,              // the fetch that reaches Dream Labs
+})
+```
+
+Bodies and upstream statuses pass through unchanged (DreamAPI reports every outcome in the body's status envelope;
+a 204, 205 or 304 has no body); the answer carries only `Content-Type`, `Cache-Control: no-store` and the CORS
+headers, and an answer that contains the key is withheld (502). **The client identity sent upstream is the proxy's,
+never the caller's:** `Dream-Client-Version: <clientVersion>` and `User-Agent: dream-client/<clientVersion>
+<instance>` on the POSTs (the instance from the client's `Dream-Client-Instance`, or the one a non-browser client's
+`User-Agent` names), and `User-Agent: dream-client/<clientVersion>` on the GETs. The version decides whether the
+gateway serves checkpoints whose robot has parts, so a page must not choose it: set `clientVersion` only on a server
+whose clients convert parts. A caller's `Authorization`, cookies and other headers are dropped. A request with an
+`Origin` not in `allowedOrigins` is refused (403), and a page served from the proxy's own origin must be listed too.
+Redirects are not followed, and the key is never logged or put in an error. A caller that disconnects or cancels
+(the request's `signal`) stops the upstream call, and nothing is sent for one that cancelled during `authorize`.
+
+**Host check.** A page served from an attacker's name that resolves to your proxy (DNS rebinding) is same-origin to
+it, and its GETs carry no `Origin`; only the `Host` check stops it, so `allowedHosts` is required. List the names the
+proxy is reached by (`["127.0.0.1:8787", "localhost:8787"]` for a local one). Pass `"any"` only where something in
+front already routes by name: a Cloudflare Worker on its routes or custom domain, a reverse proxy that matches
+`server_name` / `Host` and drops the rest. That router is then where the check lives.
+
+**Sign-in.** **Whoever reaches the proxy spends your key:** give it `authorize`, or put your own sign-in in front of
+it; the origin and host checks are not a sign-in. `authorize` sees the request's URL, method, headers and signal but
+not its body, before anything is read or forwarded; a Response it returns gets the CORS headers of an allowed origin.
+From a page on another origin, sign in with a header, not a cookie: send it with the client's `headers` option (e.g.
+`{ "X-App-Auth": token }`), list it in `allowedHeaders`, and check it in `authorize`. Credentialed CORS (cookies) is
+not supported.
 
 ## API overview
 
 ### `DreamClient` (`dream.DreamClient`)
 
 ```ts
-new DreamClient({ apiKey?, baseUrl?, platformUrl?, fetch?, headers?, clientVersion?, proxyHeaders?, onWarning?, onDiagnostics?, now? })
+new DreamClient({ apiKey?, baseUrl?, platformUrl?, dataUrl?, proxyUrl?, fetch?, headers?, clientVersion?, proxyHeaders?, onWarning?, onDiagnostics?, now? })
 client.getModels({ signal? }): Promise<Model[]>
 client.policy(config: PolicyConfig, { signal? }): Promise<void>
 client.setObservation(frames, observation, { timestamp? }): void
 client.getAction({ commanded?, signal?, execution?: { observationAgeMs?, elapsedExecutionS? } }): Promise<ActionDict>
+client.onRoundTrip(fn: (trip: RoundTrip) => unknown): () => void
+client.waitForIk(timeoutS): Promise<boolean>
 client.resetEpisode(): Promise<void>
 client.refillDue(executed, remaining): boolean
 client.takeoverAt(action, row, commanded): ActionDict
 client.mode / executionHorizon / actionHz / lastTiming / lastDiagnostics / checkpoint / sessionId
 client.close(): Promise<void>
 ```
+
+**Round trips.** `onRoundTrip(fn)` calls `fn` after every getAction() that built its observation from the window
+(not before the first setObservation() of an episode), returned or threw, a local refusal before sending included, with a
+frozen `RoundTrip`: `sentS` (epoch seconds), `frames` (per frame key, the base64 JPEGs sent, oldest first),
+`observation` (every other key sent), `action` (null when it threw), `timing` (`lastTiming` after the call), `error`
+(the `DreamError`, null when it returned) and `trained` (below). As in Python, what `fn` throws is thrown out of
+getAction(). It returns a function that removes that registration (TS-only; idempotent, and a function added twice
+stays registered once).
+
+**What a fine-tune was trained on.** For a checkpoint that is one of your fine-tunes (`dream-1-ft:...`), policy()
+reads once per checkpoint each camera's training frame sizes and the dataset's tasks
+(`GET <dataUrl>/v1/fine_tuning/models/<id>/training_data`); a lookup that fails is one `DreamTrainingWarning` (the
+key cut from its message) and never refuses. Each episode's first getAction() then holds its frames and prompt to them: a camera whose aspect is
+more than 5% off every training size it had, and a prompt that is none of the tasks (case, spacing and end
+punctuation aside; the closest task by difflib's ratio is named), are each one line, warned once a policy through
+`onWarning` as a `DreamTrainingWarning` and handed to every round trip of the episode as `trained`. Nothing is
+refused.
+
+**`waitForIk(timeoutS)`** resolves true at once with a policy open (DreamConfigError without one): Python compiles
+its `traj` solve on a thread for up to 20 s and a robot program waits for it before powering arms that would starve
+meanwhile; here there is nothing to compile.
 
 `PolicyConfig` takes the Python keys in camelCase: `checkpoint`, `embodiment`, `strict`, `timeoutMs`, `obsWindow`,
 `obsFps`, `executionHorizon`, `actionHz`, `syncAboveMs`, `kinematics`, `robot` and `ik`. Three keys are TS-only:
@@ -167,12 +261,15 @@ before and after the projection; otherwise it is a `DreamActionError` and, as fo
   observations you built yourself; it takes the same options (`processing`, `proxyHeaders`, `clientVersion`,
   `onDiagnostics`, ...), and `getAction(observation, { commanded?, signal?, execution? })`.
 - `ObservationWindow` (`_window.Window`), `Pacer` (`pacing.Pacer`), `SeamSmoother` (`smoothing.SeamSmoother`).
-- `DREAM_1_BETA`, `DREAM_1_BETA_FLASH`, `VERSION`, `UPSTREAM`, `CLIENT_VERSION`, and the types (`Model`,
-  `PolicyConfig`, `ActionDict`, `Commanded`, `Timing`, `Diagnostics`, `GetActionOptions`, `IkConfig`, ...).
+- `DREAM_1_BETA`, `DREAM_1_BETA_FLASH`, `FINE_TUNE_PREFIX`, `VERSION`, `UPSTREAM`, `CLIENT_VERSION`, `REASONS` (per
+  envelope code, the reasons the gateway answers it with, as `shared.contracts.envelope` lists them), and the types
+  (`Model`, `PolicyConfig`, `ActionDict`, `Commanded`, `Timing`, `Diagnostics`, `RoundTrip`, `TrainedInputs`,
+  `GetActionOptions`, `IkConfig`, `DreamReason`, `DreamWarning`, ...).
 - Errors: `DreamError`, `DreamConfigError`, `DreamObservationError`, `DreamActionError`, `DreamTimeout`,
   `DreamProtocolError`, `DreamCancelled`, `DreamServerError` (`code`, `reason`, `retryable`, `retryAfterS`,
   `envelope`, `traceId`), `DreamAuthError`, `DreamBadRequest` (which is also `instanceof DreamConfigError`, as in
-  Python), `DreamSessionExpired`, and `DreamSlowNetworkWarning` (passed to `onWarning`, never thrown).
+  Python), `DreamSessionExpired`, and `DreamSlowNetworkWarning` and `DreamTrainingWarning` (passed to `onWarning`,
+  never thrown).
   `DreamConfigError` and `DreamActionError` carry `detail: { kind, key, row }` for the checks that name one
   (`kind`: `non_finite`, `shape`, `range`, `degenerate_rotation`, `unsupported`, `model_mismatch`). Transport
   errors keep the underlying error as `cause` (with the key scrubbed from it).
@@ -190,8 +287,11 @@ before and after the projection; otherwise it is a `DreamActionError` and, as fo
   `DreamActionError`; its answer is always finite.
 - `ClientIK`: what `policy({ ik })` runs (`dream.client_ik.ClientIK`).
 - `defineArm(armFile, urdfText)`: your own arm from its URDF and an arm file's keys (`dream.arm_file`). You pass
-  the contents, not paths, so it works in a browser. It refuses a URDF with a loop or a link with two parents,
-  non-finite or malformed vectors, limits or velocities, and a range that is empty 2 degrees inside the limits.
+  the contents, not paths, so it works in a browser. The arm file takes `base`, `flange`, `tcp`, `approach`, `jaw`,
+  `rest`, optionally `urdf` (ignored) and `tcp_calibration`, and nothing else; the chain takes fixed joints, and
+  revolute and prismatic joints with limits (no continuous joint, no mimic). It refuses a URDF with a loop or a link
+  with two parents, non-finite or malformed vectors, limits or velocities, and a range that is empty 2 degrees inside
+  the limits.
 - `matToRot6` / `rot6ToMat` (null for a degenerate rotation_6d): `tool()`'s matrices to the poses' rotation_6d.
 
 The `ik` config key takes four TS-only keys: `speedCap` (rad/s, every chunk, on top of the arm's caps),
@@ -221,17 +321,20 @@ each side's tool pose and grip. Anything else is a `DreamConfigError` with `deta
 | `client.policy({"checkpoint": ..., "timeout_ms": 5000})` | `await client.policy({ checkpoint, timeoutMs: 5000 })`          |
 | `client.set_observation(frames, obs, timestamp=t)`    | `client.setObservation(frames, obs, { timestamp: t })`             |
 | `client.get_action(commanded=...)`                    | `await client.getAction({ commanded })`                            |
+| `client.on_round_trip(fn)`, `dream.RoundTrip(sent_s, frames, observation, action, timing, error, trained)` | `client.onRoundTrip(fn)`, `RoundTrip { sentS, frames, observation, action, timing, error, trained }` |
+| `client.wait_for_ik(timeout_s)`                       | `await client.waitForIk(timeoutS)`                                 |
 | `client.reset_episode()` / `client.close()`           | `await client.resetEpisode()` / `await client.close()`             |
 | `client.refill_due(executed, remaining)`              | `client.refillDue(executed, remaining)`                            |
 | `client.mode`, `execution_horizon`, `action_hz`       | `client.mode`, `executionHorizon`, `actionHz`                      |
 | `client.last_timing["rtt_ms"]`                        | `client.lastTiming.rttMs` (also `serveInferMs`, `gatewayMs`, `networkMs`, `requestBytes`, `responseBytes`; TS-only `ikMs`, `totalMs`) |
 | `client.get_models()` → `Model(id, base_model, ...)`  | `await client.getModels()` → `Model { id, baseModel, ... }`        |
-| config `host` / `port` / `scheme` (refused; from credentials) | constructor `baseUrl` (gateway), `platformUrl` (platform)  |
+| config `host` / `port` / `scheme` (refused; from credentials) | constructor `baseUrl` (gateway), `platformUrl` (platform), `dataUrl` (data service), or `proxyUrl` for all three |
 | config `obs_window`, `obs_fps`, `execution_horizon`, `action_hz`, `sync_above_ms`, `strict`, `robot`, `embodiment`, `kinematics` | `obsWindow`, `obsFps`, `executionHorizon`, `actionHz`, `syncAboveMs`, `strict`, `robot`, `embodiment`, `kinematics` |
 | config `ik: {"arm": "metal", "head": "eef", "solve": "traj", "reach": ...}` | `ik: { arm: "metal", head: "eef", solve: "traj", reach }` |
 | config `ik: {"arm": "/path/arm.json", ...}`           | `ik: { arm: defineArm(armFile, urdfText), ... }`                   |
 | `dream.errors.DreamServerError.retry_after_s`         | `DreamServerError.retryAfterS`                                     |
-| `warnings` `DreamSlowNetworkWarning`                  | `onWarning(warning)` option (default `console.warn`)               |
+| `warnings` `DreamSlowNetworkWarning`, the `UserWarning` lines of `dream.trained_inputs` | `onWarning(warning)` option (default `console.warn`): `DreamSlowNetworkWarning`, `DreamTrainingWarning` |
+| `dream.trained_inputs.fetch`, `notes`                 | `fetchTrainedInputs`, `trainedNotes` (`/internal`)                 |
 | `dream.credentials.load()`                            | `loadCredentials()` (`/node`); `resolveCredentials(env, file)` (`/internal`) elsewhere |
 | `dream._window.Window`, `dream.pacing.Pacer`          | `ObservationWindow`, `Pacer`                                       |
 | `dream.smoothing.SeamSmoother`                        | `SeamSmoother`                                                     |
@@ -264,17 +367,23 @@ Observation keys, action keys and wire bodies stay exactly as Python and DreamAP
   never goes to another host.
 - `POST <gateway>/v1/end_session` with `{"checkpoint", "session_id"}` on resetEpisode()/close(). It is best effort,
   waits at most 2 s, and never throws.
+- `GET <platform>/v1/models` (policy()'s lookup) and, for one of your fine-tunes, `GET
+  <data>/v1/fine_tuning/models/<id>/training_data` (once per checkpoint, not retried; `not_found` means not yours),
+  with `Authorization`, `Accept: application/json` and, outside browsers, `User-Agent: dream-client/<CLIENT_VERSION>`
+  (with `proxyHeaders`, also `Dream-Client-Version`).
 - With `robot` (or `ik` on a model trained on YAM arms), the observation carries `"embodiment": "other_embodiment"`.
 
 ## Client identity
 
-`Dream-Client-Version` is `makermods-dreamlabs-ts-<VERSION>+dream-1.0.8` (`CLIENT_VERSION`), not `1.0.8`. The
-gateway (per `shared.contracts.envelope.BadRequestReason`) refuses a checkpoint whose robot has parts unless the
-header is a `MAJOR.MINOR.PATCH` version no older than the first library that converts parts; any other shape passes
-its ordinary major-version check. This package does not convert parts, so claiming a semver could get such a
-checkpoint served to a client that cannot read it; with this identity the gateway refuses it instead
-(`DA-4000 client_outdated`). The MakerMods console names itself `makermods-console-1.0.8` for the same reason.
-`clientVersion` overrides it (an HTTP token, at most 64 characters); claim a semver only if you convert parts.
+`Dream-Client-Version` is `makermods-dreamlabs-ts-<VERSION>+dream-1.1.7` (`CLIENT_VERSION`), not `1.1.7`. The
+gateway (per `shared.contracts.envelope.BadRequestReason`, dreamlabs 1.0.42) refuses a checkpoint whose robot has
+parts unless the header is a `MAJOR.MINOR.PATCH` version no older than the first library that converts parts; any
+other shape passes its ordinary major-version check (a major below the oldest it serves, which is 0, so none yet).
+This package does not convert parts, so claiming a semver could get such a checkpoint served to a client that cannot
+read it; with this identity the gateway refuses it instead (`DA-4000 client_outdated`). The platform reads the
+`User-Agent: dream-client/<version>` of `GET /v1/models` the same way: it lists a body's parts only to a client that
+converts them. The MakerMods console names itself `makermods-console-<version>` for the same reason. `clientVersion`
+overrides it (an HTTP token, at most 64 characters); claim a semver only if you convert parts.
 
 Independently of `strict`, the client itself refuses what it cannot run whenever it knows: an `embodiment` with
 `parts`, a model record (looked up, or `config.model`) whose robot has parts, the `yam` arm, `keep_out`, `region`
@@ -310,8 +419,12 @@ These differences are deliberate:
   mismatched tag, or anything left over is a `DreamConfigError` with its line and column, where a lenient reader
   would drop the element and quietly change the arm's geometry. Stricter than XML only for a bare `>` in text and a
   DOCTYPE's internal subset.
-- **Where the services are** comes from the constructor (`baseUrl`, `platformUrl`), not the credentials file,
-  because a browser has no file. In Node, `createClient()` reads the file.
+- **Where the services are** comes from the constructor (`baseUrl`, `platformUrl`, `dataUrl`, or `proxyUrl`), not
+  the credentials file, because a browser has no file. In Node, `createClient()` reads the file.
+- **Training-input lines** list the cameras in the order the episode's frames were first set; Python iterates a set,
+  whose order varies from run to run.
+- **Malformed training records** (a camera size that is not a finite positive width and height, a prompt that is not
+  a string) are left out of the comparison; Python fails getAction() on them.
 - **JSON safety.** `NaN`, `Infinity`, `undefined`, bigints, binary data, `Map`, `Set` and class instances in an
   observation are a `DreamObservationError` naming the key. `JSON.stringify` would silently send `null`, or drop the
   value.
@@ -340,15 +453,22 @@ These differences are deliberate:
   in the background by default. This package records nothing.
 - **Live View** (`dream.LiveViewClient`, `dream.live`). It needs on-device face blurring and VP8 encoding before
   any frame leaves the robot. Port it only with both.
+- **The page of what the model sees and the checks** (`dream.DebugView`, `python -m dream.check`, `check_loop`,
+  `check_model`, `check_arm`, `dream.input_check` and the reminder policy() prints until a person records that check).
+  They serve a local page or a local stand-in for the gateway, read recordings from disk or move the arms.
+  `onRoundTrip()` hands an app the same round trips `DebugView` draws. The `x-dream-*` headers a client sends a check
+  server on 127.0.0.1 are not sent either.
 - **Datasets, embodiments and fine-tuning** (`add_embodiment`, `upload_dataset`, `validate_dataset`,
-  `get_datasets`, `finetune`, ...), and `delete_dataset`'s terminal prompt. Only `getModels()` is here.
+  `get_datasets`, `finetune` and its `steps`, `resume_from` and `base_share`, ...), and `delete_dataset`'s terminal
+  prompt. Only `getModels()` and the training-input lookup are here.
 - **Embodiment configs with `parts`** (a body whose fine-tune trains other slots than its own parts) are refused
   with `DreamConfigError`, as are models whose parts the platform withholds. The part conversion
   (`shared.datasets.conversion`) is not ported.
 - **IK:** the `yam` arm, `keep_out` obstacles, `region`, the two-arm cost and the fences (`ServeSpec.fences`) need
-  the collision-sphere costs, which are not ported. They are refused with `DreamConfigError`. The
-  `DREAM_PROPRIO_TEST` test switch and the arm file's `tcp_calibration` warning are not ported either. The
-  zero-shot simulator robots in `dream_ik.specs` are left out (they are sim-only).
+  the collision-sphere costs, which are not ported. They are refused with `DreamConfigError`. The arm file's
+  tool-point warning (no `dreamcli tcp` record in `tcp_calibration`, or one older than the file) is not ported:
+  `defineArm()` takes the file's contents, not its path. The zero-shot simulator robots in `dream_ik.specs` are left
+  out (they are sim-only).
 - **Logging** (`dream.logs`): none.
 
 ## Fidelity
@@ -383,10 +503,15 @@ measured value. Lengths are tool (TCP) positions; angles are joint differences o
   left lift at its margined lower limit, where dream_ik's own traj solve stops early (see
   [Where this differs from Python](#where-this-differs-from-python)). Both arms are held to the same solve run to
   convergence in float64 (2.73e-4 rad); dream_ik's own answer is 0.0201 rad from it.
-- **End to end** (`test/wire.test.ts`): the requests of `dream.DreamClient` 1.0.8 replayed: path, headers (all but
+- **End to end** (`test/wire.test.ts`): the requests of `dream.DreamClient` 1.1.7 replayed: path, headers (all but
   `Dream-Client-Version` and the `User-Agent`'s version, by design), and every number of the JSON body (Python's tool
-  poses are float32); its returned actions, and where client IK runs, the arms' joints (dream_ik's float32 solve
-  against ours).
+  poses are float32); the training-data lookups; its returned actions, and where client IK runs, the arms' joints
+  (dream_ik's float32 solve against ours); every round trip it handed `on_round_trip()` (its frames, observation,
+  timing, error and lines, and that its action is the one returned) and every training-input line it warned; the
+  models listings per call (one where Python makes one or more: this client reuses one listing within a policy()).
+- **Training inputs** (`test/trained-inputs.test.ts`): difflib's ratio and closest match (ties by code point), the
+  prompt as compared (`str.casefold()` for every code point), the base64 decode and JPEG frame size, and `notes()`
+  against `dream.trained_inputs` on drawn prompts and frames, exactly.
 - **The rest** (window, pacing, smoothing and seam join helpers, `client_ik` helpers) against the Python functions'
   own answers on seeded inputs (`scripts/gen_fixtures.py`).
 
@@ -430,9 +555,9 @@ generated with (see [Development](#development)).
 | Wire: returned actions vs Python's | no client IK | 1.22e-15 | 1.00e-12 |
 | Wire: returned joints vs Python's | client IK, worst of 16 chunks | 2.82e-4 rad | 1.00e-3 rad |
 | Wire: returned joints vs Python's | client IK, median chunk | 1.36e-4 rad | - |
-| fixtures:check (recorded), joints | jaxls unpatched vs patched | 3.34e-3 rad | 0.0100 rad |
-| fixtures:check (recorded), tool | same, all but seven-joint capped traj | 66.6 µm | 0.250 mm |
-| fixtures:check (recorded), tool | same, seven-joint capped traj | 0.437 mm | 2.00 mm |
+| fixtures:check (recorded), joints | jaxls unpatched vs patched | 1.63e-3 rad | 0.0100 rad |
+| fixtures:check (recorded), tool | same, all but seven-joint capped traj | 16.3 µm | 0.250 mm |
+| fixtures:check (recorded), tool | same, seven-joint capped traj | 0.232 mm | 2.00 mm |
 <!-- fidelity:end -->
 
 ## Development
@@ -442,10 +567,15 @@ npm install
 npm run typecheck     # tsc on src, tests, examples; then src without Node types
 npm test              # vitest
 npm run build         # tsc -> dist/ with .d.ts and source maps
-npm run arms          # regenerate src/ik/arms.data.ts from dream_ik (needs ../dreamlabs-venv)
+npm run arms          # regenerate src/ik/arms.data.ts from dream_ik
+npm run casefold      # regenerate src/casefold.data.ts, Python's str.casefold() table
 npm run fixtures      # regenerate test/fixtures/*.json from the Python packages (a few minutes; JAX compiles)
 npm run fixtures:check # bound what the jaxls sort patch changes in ik.json (a few minutes)
 ```
+
+The Python scripts run with `$DREAM_PYTHON`, default `~/metal-arm-sdk/.venv/bin/python`: an environment with
+`dreamlabs` 1.0.42 and `dreamlabs-client` 1.1.7 installed. They read nothing from `~/.dreamlabs` and reach no network:
+the wire fixture runs the client against a local server, with the credentials pointed at it.
 
 `scripts/gen_fixtures.py` writes the golden fixtures. Each generator draws from its own RNG, seeded from one base
 seed and its name, and runs in its own process with XLA and BLAS on one thread (and jaxls's cost order made
@@ -457,13 +587,16 @@ numpy, scipy, jax and yourdfpy versions (jaxls and pyroki are vendored in dreaml
 settings in force, and whether jaxls's sort patch was applied. `npm run fixtures:check` (`--check-unpatched`)
 re-solves every `ik.json` case with and without that patch, each in a fresh process: with it the answers must be
 exact, and without it they must stay within recorded bounds, showing the patch only changes floating-point order:
-1e-2 rad in the joints and 0.25 mm of tool position (recorded 3.34e-3 rad and 66.6 µm), except a seven-joint arm's
+1e-2 rad in the joints and 0.25 mm of tool position (recorded 1.63e-3 rad and 16.3 µm), except a seven-joint arm's
 capped traj solve (`ai_worker_faas`, `bracketbot_faas`), whose tool position may move 2 mm along the arm's null space
-(recorded 0.437 mm). That is dream_ik against itself, patched or not; how far this package's solve is from dream_ik's
+(recorded 0.232 mm). That is dream_ik against itself, patched or not; how far this package's solve is from dream_ik's
 is the Fidelity table above (6.71 mm at most, on `ai_worker_faas` capped). `ArmName` is generated from the arm keys. Each one is the upstream code's own answer, computed with a
 fixed seed: the window, pacing, smoothing and seam join, FK of every built-in arm (float64 through yourdfpy,
-cross-checked against dream_ik's own), `solve_chunk` on seven arms in tick and traj, `client_ik`'s helpers, and
-`wire.json`. `wire.json` comes from driving the real `dream.DreamClient` against a local HTTP server, recording
-every request it sent and every answer it returned. `test/wire.test.ts` replays that against a Node mock server, and
-checks that this client sends the same requests (path, headers, body) and returns the same actions.
+cross-checked against dream_ik's own), `solve_chunk` on seven arms in tick and traj, `client_ik`'s helpers,
+`trained_inputs`' helpers and `wire.json`. `wire.json` comes from driving the real `dream.DreamClient` against a local
+HTTP server, recording every request it sent, every answer it returned, every round trip and every training-input
+warning. Two things a policy does on the computer rather than on the wire are turned off in memory there: the
+`x-dream-*` headers for a check server on 127.0.0.1 (where the recorder listens) and the input-check reminder.
+`test/wire.test.ts` replays that against a Node mock server, and checks that this client sends the same requests
+(path, headers, body), returns the same actions, hands over the same round trips and warns the same lines.
 `test/fixtures/metal.urdf` is dream_ik's `metal.urdf`, used to test `defineArm`.

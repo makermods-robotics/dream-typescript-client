@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "TypeScript SDK for Dream Labs' Dream API: run Dream-1 policies from browsers, Node, Bun and Deno.",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -26,6 +26,10 @@
       "types": "./dist/browser.d.ts",
       "default": "./dist/browser.js"
     },
+    "./proxy": {
+      "types": "./dist/proxy.d.ts",
+      "default": "./dist/proxy.js"
+    },
     "./internal": {
       "types": "./dist/internal.d.ts",
       "default": "./dist/internal.js"
@@ -37,16 +41,21 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE",
+    "THIRD-PARTY-LICENSES.md"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.core.json",
     "test": "vitest run",
     "fidelity": "node scripts/fidelity.mjs",
-    "fixtures": "../dreamlabs-venv/bin/python -I scripts/gen_fixtures.py",
-    "fixtures:check": "../dreamlabs-venv/bin/python -I scripts/gen_fixtures.py --check-unpatched",
-    "arms": "../dreamlabs-venv/bin/python -I scripts/gen_arms.py"
+    "fixtures": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_fixtures.py",
+    "fixtures:check": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_fixtures.py --check-unpatched",
+    "edge": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_edge_replies.py",
+    "limit-stop": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/replay_limit_stop.py",
+    "unicode": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_unicode.py",
+    "arms": "\"${DREAM_PYTHON:-$HOME/metal-arm-sdk/.venv/bin/python}\" -I scripts/gen_arms.py"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

@@ -6,13 +6,15 @@
  * --outfile=examples/browser-proxy/app.js`.
  */
 
-import { DREAM_1_BETA, DreamClient, type Model } from "@makermods/dreamlabs";
+import { chunkRows, DREAM_1_BETA, DreamClient, type Model } from "@makermods/dreamlabs";
 import { encodeJpegFrame } from "@makermods/dreamlabs/browser";
 
 const log = (text: string) => (document.querySelector("#log")!.textContent = text);
+log("press Start to open the camera and ask Dream-1 for chunks");
 
-// proxyHeaders: the page sends Dream-Client-Instance, and the proxy builds the User-Agent the page cannot set.
-const client = new DreamClient({ baseUrl: "/api/dream", platformUrl: "/api/dream-platform", proxyHeaders: true });
+// Every call goes to the proxy (server.ts), which adds the key; the page sends Dream-Client-Version and
+// Dream-Client-Instance, and the proxy builds the User-Agent the page cannot set.
+const client = new DreamClient({ proxyUrl: "/api/dream" });
 
 /** The body the cameras and arms are, for the checks and for sending the YAM-trained model its camera slots. */
 const parts = { arm: 6, gripper: 1, eef_xyz: 3, eef_rot6: 6, grip: 1 };
@@ -44,7 +46,7 @@ async function main(): Promise<void> {
     );
     if (client.refillDue(executed, rows.length - executed)) {
       // Awaited here for brevity (the arms would hold meanwhile): a real loop keeps playing rows while it waits.
-      rows = (await client.getAction()).q_r_chunk!;
+      rows = chunkRows((await client.getAction()).q_r_chunk) ?? [];
       executed = 0;
     }
     const row = rows[executed++];
@@ -54,4 +56,10 @@ async function main(): Promise<void> {
   await client.close();
 }
 
-main().catch((error: Error) => log(`${error.name}: ${error.message}`));
+// Nothing starts on load (opening the page, or a link to it from another site, must not spend inference): the camera
+// and the loop start on the Start button only.
+const start = document.querySelector<HTMLButtonElement>("#start")!;
+start.addEventListener("click", () => {
+  start.disabled = true;
+  main().catch((error: Error) => log(`${error.name}: ${error.message}`));
+});

@@ -7,7 +7,8 @@ import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 import { measureFidelity, over, show, table, type Fidelity } from "../scripts/fidelity.js";
 
-const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+// Line endings aside: a Windows checkout may turn the README's into CRLF.
+const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 let measured: Fidelity;
 
 // The whole measurement: every ik.json case solved, the wire replayed (some 10 s; more beside the other test files).

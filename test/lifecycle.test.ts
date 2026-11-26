@@ -12,6 +12,8 @@ import {
   DreamProtocolError,
   DreamTimeout,
   PolicyClient,
+  UPSTREAM,
+  VERSION,
   type Diagnostics,
 } from "../src/index.js";
 import { Transport } from "../src/transport.js";
@@ -55,7 +57,7 @@ function stub(options: { models?: unknown[]; hold?: Promise<void> | null; honour
   return { fetch, seen };
 }
 
-const urls = { baseUrl: "http://gateway.test", platformUrl: "http://platform.test" };
+const urls = { baseUrl: "https://gateway.test", platformUrl: "https://platform.test" };
 
 describe("the lifecycle", () => {
   it("a policy() whose model lookup is pending when close() runs opens nothing", async () => {
@@ -273,7 +275,8 @@ describe("the lifecycle", () => {
     const policy = new PolicyClient({ checkpoint: "c", ...urls, fetch: failing });
     const error = await policy.getAction(observation).catch((e) => e);
     expect(error).toBeInstanceOf(DreamProtocolError);
-    expect(error.cause).toBeInstanceOf(TypeError);
+    // A new error standing for it (never the original object, which may carry the request): its name, message, cause.
+    expect(error.cause).toMatchObject({ name: "TypeError", message: "connect ECONNREFUSED", cause: { message: "socket hang up" } });
     const leaking = async () => {
       throw new TypeError("bad header value Bearer dk_secret_1");
     };
@@ -286,8 +289,10 @@ describe("the lifecycle", () => {
 
 describe("the client identity", () => {
   it("names this package, deliberately not a semver, and takes an override", async () => {
-    expect(CLIENT_VERSION).toMatch(/^makermods-dreamlabs-ts-\d+\.\d+\.\d+\+dream-1\.0\.8$/);
-    expect(CLIENT_VERSION).not.toMatch(/^\d+\.\d+\.\d+$/);
+    expect(CLIENT_VERSION).toBe(`makermods-dreamlabs-ts-${VERSION}+dream-${UPSTREAM.dreamlabsClient}`);
+    expect(UPSTREAM.dreamlabsClient).toMatch(/^\d+\.\d+\.\d+$/);
+    // Neither MAJOR.MINOR.PATCH nor starting with one, so the gateway's parts guard refuses it however it matches.
+    expect(CLIENT_VERSION).not.toMatch(/^\d+\.\d+\.\d+/);
     const { fetch, seen } = stub();
     await new PolicyClient({ checkpoint: "c", ...urls, fetch }).getAction(observation);
     expect(seen[0]!.headers["dream-client-version"]).toBe(CLIENT_VERSION);

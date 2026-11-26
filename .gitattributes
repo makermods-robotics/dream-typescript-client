@@ -1,0 +1,8 @@
+# LF everywhere, on every checkout: fixtures are compared byte for byte (their sha256 is in the manifest), and the
+# README's fidelity table and the generated sources are compared as text.
+* text=auto eol=lf
+*.urdf text eol=lf
+*.json text eol=lf
+*.ts text eol=lf
+*.md text eol=lf
+*.py text eol=lf

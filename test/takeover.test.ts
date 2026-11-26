@@ -188,7 +188,7 @@ describe("takeoverAt() checks what it is given", () => {
     const previous = (client as unknown as { smoother: { previous: Map<string, number[][]> } }).smoother.previous;
     return Object.fromEntries([...previous].map(([key, rows]) => [key, rows.map((row) => [...row])]));
   };
-  const copy = (action: ActionDict): ActionDict => ({ ...action, q_r_chunk: action.q_r_chunk!.map((r) => [...r]), q_l_chunk: action.q_l_chunk!.map((r) => [...r]) });
+  const copy = (action: ActionDict): ActionDict => ({ ...action, q_r_chunk: (action.q_r_chunk as number[][]).map((r) => [...r]), q_l_chunk: (action.q_l_chunk as number[][]).map((r) => [...r]) });
 
   it("refuses a latest action the caller changed to hold NaN, an infinity, a wrong width or row count, and keeps no arm's plan", async () => {
     // Codex final check: a caller-modified latest action was projected and adopted, NaN and all.
@@ -198,13 +198,13 @@ describe("takeoverAt() checks what it is given", () => {
     const kept = plans(client);
     const commanded = { q_r_chunk: q, q_l_chunk: q };
     const cases: [string, (a: ActionDict) => void, RegExp][] = [
-      ["NaN after the install row", (a) => (a.q_l_chunk![30]![2] = NaN), /row 30 holds a non-finite/],
-      ["NaN before the install row", (a) => (a.q_l_chunk![3]![0] = NaN), /row 3 holds a non-finite/],
-      ["an infinite joint", (a) => (a.q_l_chunk![20]![1] = Infinity), /row 20 holds a non-finite/],
-      ["an infinite grip", (a) => (a.q_l_chunk![40]![6] = -Infinity), /row 40 holds a non-finite/],
-      ["a short row", (a) => a.q_l_chunk![15]!.pop(), /row 15 is 6 wide, not 7/],
-      ["narrower rows", (a) => (a.q_l_chunk = a.q_l_chunk!.map((r) => r.slice(0, 5))), /rows|wide/],
-      ["a missing row", (a) => a.q_l_chunk!.pop(), /has 47 rows; the chunk getAction\(\) returned has 48/],
+      ["NaN after the install row", (a) => ((a.q_l_chunk as number[][])[30]![2] = NaN), /row 30 holds a non-finite/],
+      ["NaN before the install row", (a) => ((a.q_l_chunk as number[][])[3]![0] = NaN), /row 3 holds a non-finite/],
+      ["an infinite joint", (a) => ((a.q_l_chunk as number[][])[20]![1] = Infinity), /row 20 holds a non-finite/],
+      ["an infinite grip", (a) => ((a.q_l_chunk as number[][])[40]![6] = -Infinity), /row 40 holds a non-finite/],
+      ["a short row", (a) => (a.q_l_chunk as number[][])[15]!.pop(), /row 15 is 6 wide, not 7/],
+      ["narrower rows", (a) => (a.q_l_chunk = (a.q_l_chunk as number[][]).map((r) => r.slice(0, 5))), /rows|wide/],
+      ["a missing row", (a) => (a.q_l_chunk as number[][]).pop(), /has 47 rows; the chunk getAction\(\) returned has 48/],
       ["not rows", (a) => (a.q_l_chunk = 3 as never), /is not rows of numbers/],
     ];
     for (const [name, mutate, message] of cases) {
@@ -213,19 +213,19 @@ describe("takeoverAt() checks what it is given", () => {
       expect(() => client.takeoverAt(latest, 12, commanded), name).toThrow(DreamActionError);
       expect(() => client.takeoverAt(latest, 12, commanded), name).toThrow(message);
       expect(plans(client), name).toEqual(kept);
-      Object.assign(latest, { q_l_chunk: kept.q_l_chunk!.map((r) => [...r]) });
+      Object.assign(latest, { q_l_chunk: (kept.q_l_chunk as number[][]).map((r) => [...r]) });
     }
     // The same checks on a chunk that is not the latest (nothing to adopt): refused, never returned.
     const other = copy(latest);
-    other.q_r_chunk![25]![4] = NaN;
+    (other.q_r_chunk as number[][])[25]![4] = NaN;
     expect(() => client.takeoverAt(other, 12, commanded)).toThrow(DreamActionError);
     const narrow = copy(latest);
-    narrow.q_r_chunk = narrow.q_r_chunk!.map((r) => r.slice(0, 4));
+    narrow.q_r_chunk = (narrow.q_r_chunk as number[][]).map((r) => r.slice(0, 4));
     expect(() => client.takeoverAt(narrow, 12, commanded)).toThrow(/the arm has 6 joints/);
     // A finite change the caller made is still taken, and becomes the plan.
-    latest.q_r_chunk![30]![0]! += 0.01;
+    (latest.q_r_chunk as number[][])[30]![0]! += 0.01;
     const out = client.takeoverAt(latest, 12, commanded);
-    expect(out.q_r_chunk!.every((r) => r.every(Number.isFinite))).toBe(true);
+    expect((out.q_r_chunk as number[][]).every((r) => r.every(Number.isFinite))).toBe(true);
     expect(plans(client).q_r_chunk).toEqual(out.q_r_chunk);
   });
 });
@@ -246,16 +246,16 @@ describe("takeoverAt() checks every arm, holes included", () => {
     const both = { q_r_chunk: q, q_l_chunk: q };
     const rightOnly = { q_r_chunk: q };
     const cases: [string, (a: ActionDict) => void, RegExp][] = [
-      ["NaN after the install row", (a) => (a.q_l_chunk![30]![2] = NaN), /'q_l_chunk' row 30 holds a non-finite/],
-      ["NaN before the install row", (a) => (a.q_l_chunk![3]![0] = NaN), /'q_l_chunk' row 3 holds a non-finite/],
-      ["a number deleted before the install row", (a) => delete a.q_l_chunk![3]![2], /'q_l_chunk' row 3 has a hole at column 2/],
-      ["a number deleted after the install row", (a) => delete a.q_l_chunk![30]![2], /'q_l_chunk' row 30 has a hole at column 2/],
-      ["a sparse row literal before the install row", (a) => (a.q_l_chunk![5] = [0, , 0, 0, 0, 0, 0.5] as never), /'q_l_chunk' row 5 has a hole at column 1/],
-      ["the grip deleted before the install row", (a) => delete a.q_l_chunk![2]![6], /'q_l_chunk' row 2 has a hole at column 6/],
-      ["a row deleted before the install row", (a) => delete a.q_l_chunk![4], /'q_l_chunk' row 4 is a hole/],
-      ["a row deleted after the install row", (a) => delete a.q_l_chunk![40], /'q_l_chunk' row 40 is a hole/],
-      ["a string", (a) => ((a.q_l_chunk![6]![1] as unknown) = "1"), /'q_l_chunk' row 6 holds a non-number/],
-      ["a short row", (a) => a.q_l_chunk![15]!.pop(), /'q_l_chunk' row 15 is 6 wide, not 7/],
+      ["NaN after the install row", (a) => ((a.q_l_chunk as number[][])[30]![2] = NaN), /'q_l_chunk' row 30 holds a non-finite/],
+      ["NaN before the install row", (a) => ((a.q_l_chunk as number[][])[3]![0] = NaN), /'q_l_chunk' row 3 holds a non-finite/],
+      ["a number deleted before the install row", (a) => delete (a.q_l_chunk as number[][])[3]![2], /'q_l_chunk' row 3 has a hole at column 2/],
+      ["a number deleted after the install row", (a) => delete (a.q_l_chunk as number[][])[30]![2], /'q_l_chunk' row 30 has a hole at column 2/],
+      ["a sparse row literal before the install row", (a) => ((a.q_l_chunk as number[][])[5] = [0, , 0, 0, 0, 0, 0.5] as never), /'q_l_chunk' row 5 has a hole at column 1/],
+      ["the grip deleted before the install row", (a) => delete (a.q_l_chunk as number[][])[2]![6], /'q_l_chunk' row 2 has a hole at column 6/],
+      ["a row deleted before the install row", (a) => delete (a.q_l_chunk as number[][])[4], /'q_l_chunk' row 4 is a hole/],
+      ["a row deleted after the install row", (a) => delete (a.q_l_chunk as number[][])[40], /'q_l_chunk' row 40 is a hole/],
+      ["a string", (a) => (((a.q_l_chunk as number[][])[6]![1] as unknown) = "1"), /'q_l_chunk' row 6 holds a non-number/],
+      ["a short row", (a) => (a.q_l_chunk as number[][])[15]!.pop(), /'q_l_chunk' row 15 is 6 wide, not 7/],
       ["the arm's chunk gone", (a) => delete a.q_l_chunk, /'q_l_chunk' is gone/],
     ];
     for (const [name, mutate, message] of cases) {
@@ -264,14 +264,14 @@ describe("takeoverAt() checks every arm, holes included", () => {
         expect(() => client.takeoverAt(latest, 12, commanded), `${name}, ${which}`).toThrow(DreamActionError);
         expect(() => client.takeoverAt(latest, 12, commanded), `${name}, ${which}`).toThrow(message);
         expect(plans(client), `${name}, ${which}`).toEqual(kept);
-        Object.assign(latest, { q_l_chunk: kept.q_l_chunk!.map((r) => [...r]) });
+        Object.assign(latest, { q_l_chunk: (kept.q_l_chunk as number[][]).map((r) => [...r]) });
       }
     }
     // The same on the arm that is commanded, while the other is left out.
-    delete latest.q_r_chunk![3]![2];
+    delete (latest.q_r_chunk as number[][])[3]![2];
     expect(() => client.takeoverAt(latest, 12, rightOnly)).toThrow(/'q_r_chunk' row 3 has a hole at column 2/);
     expect(plans(client)).toEqual(kept);
-    latest.q_r_chunk![3]![2] = kept.q_r_chunk![3]![2]!;
+    (latest.q_r_chunk as number[][])[3]![2] = (kept.q_r_chunk as number[][])[3]![2]!;
     // Valid, the arm left out is returned as it was (dense, new arrays), its plan unchanged; the other re-anchored.
     const out = client.takeoverAt(latest, 12, rightOnly);
     expect(out.q_l_chunk).toEqual(kept.q_l_chunk);
@@ -286,20 +286,20 @@ describe("takeoverAt() checks every arm, holes included", () => {
     const latest = await client.getAction(observation(q));
     const kept = plans(client);
     // Not the latest: nothing kept, but a bad arm left out is still never returned.
-    const other: ActionDict = { q_r_chunk: kept.q_r_chunk!.map((r) => [...r]), q_l_chunk: kept.q_l_chunk!.map((r) => [...r]) };
-    delete other.q_l_chunk![1]![0];
+    const other: ActionDict = { q_r_chunk: (kept.q_r_chunk as number[][]).map((r) => [...r]), q_l_chunk: (kept.q_l_chunk as number[][]).map((r) => [...r]) };
+    delete (other.q_l_chunk as number[][])[1]![0];
     expect(() => client.takeoverAt(other, 12, { q_r_chunk: q })).toThrow(/'q_l_chunk' row 1 has a hole at column 0/);
-    const typed = { q_r_chunk: kept.q_r_chunk!.map((r) => Float64Array.from(r)), q_l_chunk: kept.q_l_chunk!.map((r) => Float64Array.from(r)) } as unknown as ActionDict;
+    const typed = { q_r_chunk: (kept.q_r_chunk as number[][]).map((r) => Float64Array.from(r)), q_l_chunk: (kept.q_l_chunk as number[][]).map((r) => Float64Array.from(r)) } as unknown as ActionDict;
     const fromTyped = client.takeoverAt(typed, 12, { q_r_chunk: Float64Array.from(q) as never });
     expect(fromTyped.q_l_chunk).toEqual(kept.q_l_chunk);
-    expect(fromTyped.q_l_chunk!.every(Array.isArray)).toBe(true);
+    expect((fromTyped.q_l_chunk as number[][]).every(Array.isArray)).toBe(true);
     // A sparse commanded is refused before anything; a typed one is the same as the plain one.
     const sparse = [...q];
     delete sparse[2];
     expect(() => client.takeoverAt(latest, 12, { q_r_chunk: sparse })).toThrow(/commanded 'q_r_chunk' must be a flat run of finite numbers/);
     expect(plans(client)).toEqual(kept);
-    const plain = client.takeoverAt({ ...other, q_l_chunk: kept.q_l_chunk! }, 12, { q_r_chunk: q });
-    expect(client.takeoverAt({ ...other, q_l_chunk: kept.q_l_chunk! }, 12, { q_r_chunk: Float64Array.from(q) as never })).toEqual(plain);
+    const plain = client.takeoverAt({ ...other, q_l_chunk: (kept.q_l_chunk as number[][]) }, 12, { q_r_chunk: q });
+    expect(client.takeoverAt({ ...other, q_l_chunk: (kept.q_l_chunk as number[][]) }, 12, { q_r_chunk: Float64Array.from(q) as never })).toEqual(plain);
     expect(plans(client)).toEqual(kept);
   });
 
@@ -326,7 +326,7 @@ describe("ik.gripSpeedCap", () => {
 
   it("is off by default (as upstream): the grip steps as the model answers it, clamped to [0, 1]", async () => {
     const { client, observation } = slowIkClient(() => 1, undefined, (_call, k) => (k % 2 ? 1.3 : -0.2));
-    const chunk = (await client.getAction(observation([...metal.data.restPose], 0))).q_r_chunk!;
+    const chunk = (await client.getAction(observation([...metal.data.restPose], 0))).q_r_chunk as number[][];
     expect(chunk.every((r) => r[6]! >= 0 && r[6]! <= 1)).toBe(true);
     expect(worstGrip(chunk)).toBeGreaterThan(0.5);
   });
@@ -338,7 +338,7 @@ describe("ik.gripSpeedCap", () => {
     const { commands } = await (async () => {
       const { client, observation } = setup;
       const q = [...metal.data.restPose];
-      let chunk = (await client.getAction(observation(q, 0.9))).q_r_chunk!;
+      let chunk = (await client.getAction(observation(q, 0.9))).q_r_chunk as number[][];
       // The first row steps from the measured grip, 0.9.
       expect(Math.abs(chunk[0]![6]! - 0.9)).toBeLessThanOrEqual(step + 1e-12);
       const commands: number[][] = chunk.slice(0, 20);
@@ -346,7 +346,7 @@ describe("ik.gripSpeedCap", () => {
         const last = commands.at(-1)!;
         const reply = await client.getAction(observation(last.slice(0, 6), last[6]!), { commanded: { q_r_chunk: last, q_l_chunk: last } });
         // Installed late, at row 9, through takeoverAt() from the written row (the grip its last value).
-        chunk = client.takeoverAt(reply, 9, { q_r_chunk: last, q_l_chunk: last }).q_r_chunk!;
+        chunk = client.takeoverAt(reply, 9, { q_r_chunk: last, q_l_chunk: last }).q_r_chunk as number[][];
         commands.push(...chunk.slice(9, 21));
       }
       return { commands };

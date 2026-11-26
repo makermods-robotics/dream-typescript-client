@@ -55,7 +55,7 @@ for (let tick = 0; tick < 20 * HZ; tick++) {
       prompt: PROMPT,
     },
   );
-  const remaining = chunk ? chunk.q_r_chunk!.length - row : 0;
+  const remaining = chunk ? (chunk.q_r_chunk as number[][]).length - row : 0;
   if (!pending && client.refillDue(row - installedAt, remaining)) {
     ranSinceRequest = 0;
     pending = client.getAction({ commanded: Object.keys(last).length ? last : null });
@@ -66,7 +66,7 @@ for (let tick = 0; tick < 20 * HZ; tick++) {
       (next) => {
         const commanded = Object.keys(last).length ? last : null;
         chunk = client.takeoverAt(next, ranSinceRequest, commanded);
-        row = installedAt = Math.min(ranSinceRequest, chunk.q_r_chunk!.length);
+        row = installedAt = Math.min(ranSinceRequest, (chunk.q_r_chunk as number[][]).length);
         pending = null;
       },
       (error) => {
@@ -75,9 +75,9 @@ for (let tick = 0; tick < 20 * HZ; tick++) {
       },
     );
   }
-  if (chunk && row < chunk.q_r_chunk!.length) {
-    command("right", (last.q_r_chunk = chunk.q_r_chunk![row]!));
-    command("left", (last.q_l_chunk = chunk.q_l_chunk![row]!));
+  if (chunk && row < (chunk.q_r_chunk as number[][]).length) {
+    command("right", (last.q_r_chunk = (chunk.q_r_chunk as number[][])[row]!));
+    command("left", (last.q_l_chunk = (chunk.q_l_chunk as number[][])[row]!));
     row++;
     ranSinceRequest++;
   }

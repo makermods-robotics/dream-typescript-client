@@ -6,24 +6,27 @@
  * ```ts
  * import { DreamClient } from "@makermods/dreamlabs";
  *
- * const client = new DreamClient({ baseUrl: "/api/dream", platformUrl: "/api/dream-platform", proxyHeaders: true });
+ * const client = new DreamClient({ proxyUrl: "/api/dream" }); // createDreamProxy() from "@makermods/dreamlabs/proxy"
  * await client.policy({ checkpoint: "dreamlabs/dream-1-beta", ik: { arm: "metal", head: "eef" }, embodiment });
  * client.setObservation(frames, observation); // every camera tick
  * const chunk = await client.getAction();     // when refillDue() says so
  * ```
  *
- * The 0.x public API is this entry, `./ik` (client-side IK and FK), `./node` (credentials) and `./browser` (camera
- * frames). `./internal` holds the building blocks (the wire, the strict checks, the seam join's helpers, the solver),
+ * The 0.x public API is this entry, `./ik` (client-side IK and FK), `./node` (credentials, and a `node:http` adapter
+ * for the proxy), `./browser` (camera frames) and `./proxy` (a server-side proxy for browser apps). `./internal` holds the building blocks (the wire, the strict checks, the seam join's helpers, the solver),
  * exported for tests and experiments, with no stability promise.
  */
 
-export { DreamClient, type DreamClientOptions, type PolicyConfig } from "./facade.js";
+export { DreamClient, type DreamClientOptions, type PolicyConfig, type RoundTrip } from "./facade.js";
 export {
   IK_LEAD_SOLVES,
   PolicyClient,
+  REASONS,
   type ActionDict,
   type Commanded,
   type Diagnostics,
+  type DreamReason,
+  type NumberArray,
   type ExecutionTiming,
   type GetActionOptions,
   type IkLead,
@@ -37,6 +40,7 @@ export {
   DreamActionError,
   DreamAuthError,
   DreamBadRequest,
+  DreamCallbackWarning,
   DreamCancelled,
   DreamConfigError,
   DreamError,
@@ -46,10 +50,14 @@ export {
   DreamSessionExpired,
   DreamSlowNetworkWarning,
   DreamTimeout,
+  DreamTrainingWarning,
   type DreamErrorDetail,
   type DreamServerErrorFields,
+  type DreamWarning,
 } from "./errors.js";
 export { DREAM_1_BETA, DREAM_1_BETA_FLASH, type CheckpointId, type Model } from "./models.js";
+export { FINE_TUNE_PREFIX, type TrainedInputs } from "./trained-inputs.js";
+export { chunkRows } from "./actions.js";
 export { ObservationWindow } from "./window.js";
 export { Pacer, type PacingMode } from "./pacing.js";
 export { SeamSmoother } from "./smoothing.js";

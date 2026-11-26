@@ -1,8 +1,9 @@
 """Golden fixtures for the TypeScript tests, from the upstream Python packages (npm run fixtures).
 
-Run with the Python environment that has `dreamlabs` 1.0.17 and `dreamlabs-client` 1.0.8 installed:
+Run with the Python environment that has `dreamlabs` 1.0.42 and `dreamlabs-client` 1.1.7 installed (`npm run
+fixtures` takes it from $DREAM_PYTHON, default ~/metal-arm-sdk/.venv/bin/python):
 
-    ../dreamlabs-venv/bin/python -I scripts/gen_fixtures.py [--only window,pacing,smoothing,fk,ik,client_ik,wire]
+    $DREAM_PYTHON -I scripts/gen_fixtures.py [--only window,pacing,smoothing,fk,ik,client_ik,trained,wire]
 
 Each fixture is the upstream code's own answer to inputs drawn here with fixed seeds. Each gen_X draws from its own
 `np.random.Generator`, seeded with [BASE_SEED, crc32("X")], and runs in a process of its own (gen_wire patches dream's
@@ -18,8 +19,11 @@ allocated before. So `--only X` writes exactly what a full run writes for X:
   (float32) forward kinematics.
 - ik.json: `dream_ik.decode.solve_chunk`, tick and traj, on reachable paths of several arms.
 - client_ik.json: `dream.client_ik`'s reach clamp and fence, camera slots and unit conversions (`_Wire`).
-- wire.json: `dream.DreamClient` end to end against a local HTTP server: every request it sent (path, headers, body)
-  and every answer it returned, for the TypeScript client to replay against its own mock server.
+- trained.json: `dream.trained_inputs`: difflib's ratio and closest match on drawn prompts, `_plain`, the JPEG frame
+  size, notes() on drawn frames and prompts, and the Python reprs, formats and quoting its lines and requests use.
+- wire.json: `dream.DreamClient` end to end against a local HTTP server: every request it sent (path, headers, body),
+  every answer it returned, each round trip it handed `on_round_trip()` and each line it warned about what a fine-tune
+  was trained on, for the TypeScript client to replay against its own mock server.
 
 Each run also records what it wrote in its section of test/fixtures/manifest.json (scripts/manifest.py), per fixture
 so that `--only X` misdescribes none of the others: its sha256, seed and the dream_ik URDFs it was made from, and the
@@ -30,7 +34,7 @@ NaN or infinity): null is Python's None.
 
 The cost-order patch is a test harness choice, not upstream behavior, so
 
-    ../dreamlabs-venv/bin/python -I scripts/gen_fixtures.py --check-unpatched
+    $DREAM_PYTHON -I scripts/gen_fixtures.py --check-unpatched
 
 generates nothing but re-solves every ik.json case twice, each in a fresh process (#check_unpatched): patched, which
 must give ik.json back exactly, and with jaxls as shipped, whose answers must stay within UNPATCHED_BOUNDS of the
@@ -55,6 +59,8 @@ import subprocess
 import sys
 import threading
 import types
+import urllib.parse
+import warnings
 import zlib
 
 os.environ.setdefault("DREAM_LOG", "off")
@@ -127,6 +133,12 @@ def steady_cost_order() -> None:
 
 def frame(i: int) -> str:
     return base64.b64encode(f"jpeg-{i}".encode()).decode()
+
+
+def jpeg_frame(i: int, width: int, height: int) -> str:
+    """A frame that is only a JPEG's start of frame (what `dream.input_check._jpeg_size` reads), then a tag."""
+    sof = b"\xff\xc0\x00\x11\x08" + height.to_bytes(2, "big") + width.to_bytes(2, "big") + b"\x03" + bytes(9)
+    return base64.b64encode(b"\xff\xd8" + sof + b"\xff\xd9" + f"jpeg-{i}".encode()).decode()
 
 
 # ---------------------------------------------------------------- window
@@ -553,6 +565,118 @@ def gen_client_ik(rng: np.random.Generator) -> None:
     write("client_ik.json", out)
 
 
+# ---------------------------------------------------------------- trained inputs
+
+
+def gen_trained(rng: np.random.Generator) -> None:
+    """`dream.trained_inputs`: the prompt comparison (difflib's ratio and closest match, `_plain`), the frame size read
+    from a JPEG's header, and notes() on drawn frames and prompts, with the Python reprs and formats its lines use."""
+    import difflib
+
+    from dream import trained_inputs
+    from dream.input_check import _jpeg_size
+
+    words = ["pick", "up", "the", "red", "cube", "fold", "towels", "stack", "blocks", "Put", "it", "in", "box", "ß", "Ωmega", "naïve", "l'eau"]
+    marks = ["", ".", "!", "?", " ", "  ", "\t", ",", ";:", "...", "\u3000"]
+
+    def phrase():
+        n = int(rng.integers(1, 6))
+        text = " ".join(str(rng.choice(words)) for _ in range(n))
+        if rng.random() < 0.3:
+            text = text.upper() if rng.random() < 0.5 else text.title()
+        return str(rng.choice(marks)) + text.replace(" ", str(rng.choice([" ", "  ", " \n "]))) + str(rng.choice(marks))
+
+    ratios = []
+    for _ in range(300):
+        a, b = phrase(), phrase()
+        if rng.random() < 0.2:
+            b = a[: int(rng.integers(0, len(a) + 1))] + phrase()
+        ratios.append({"a": a, "b": b, "ratio": difflib.SequenceMatcher(None, a, b).ratio()})
+    long_b = "ab" * 150 + "c" * 30  # the popular-element heuristic: b of 200 or more
+    for a in ("abc" * 40, "c" * 50 + "ab", "xyz"):
+        ratios.append({"a": a, "b": long_b, "ratio": difflib.SequenceMatcher(None, a, long_b).ratio()})
+    closest = []
+    for _ in range(150):
+        tasks = [trained_inputs._plain(phrase()) for _ in range(int(rng.integers(1, 6)))]
+        word = trained_inputs._plain(phrase())
+        closest.append({"word": word, "possibilities": tasks, "match": difflib.get_close_matches(word, tasks, n=1, cutoff=trained_inputs.CLOSE_PROMPT)})
+    plain = [{"text": t, "plain": trained_inputs._plain(t)} for t in [phrase() for _ in range(100)] + ["  Stack!  ", "\u00a0fold\u2003the towel.", "ẞIG Σ", "\x1cx\x1f", "ﬂip the µ-cube", "flip the μ-cube", "ΣΑΣ ﬁ ŉ ǰ ᾳ"]]
+    # Ties to the greater string by code point: an astral character against a BMP one above the surrogates.
+    for word, tasks in (("abc", ["ab\U0001f600", "ab\uff21"]), ("abc", ["ab\uff21", "ab\U0001f600"]), ("pick it", ["pick ix", "pick iy"])):
+        closest.append({"word": word, "possibilities": tasks, "match": difflib.get_close_matches(word, tasks, n=1, cutoff=trained_inputs.CLOSE_PROMPT)})
+    folds = [[cp, chr(cp).casefold()] for cp in range(0x110000) if chr(cp).casefold() != chr(cp)]
+    sizes = []
+    for i in range(40):
+        width, height = int(rng.integers(1, 4000)), int(rng.integers(1, 4000))
+        good = jpeg_frame(i, width, height)
+        sample = good if i % 4 else frame_variant(rng, good)
+        sizes.append({"frame": sample, "size": _jpeg_size(sample)})
+    vga = jpeg_frame(99, 640, 480)
+    for sample in (vga + "==", vga + "====", vga.rstrip("=") + "=", vga + "*", "\u00e9" + vga, vga[:5] + "=" + vga[5:]):
+        sizes.append({"frame": sample, "size": _jpeg_size(sample)})
+    decodes = []
+    for text in ["YQ==", "YQ=", "YQ", "YQ===", "YQ==YWI=", "Y=Q==", "YWJj", "YWJj====", "YW=Jj", "YWJ=", "YWJ", "Y", "YQ=*=", "=YQ==", "YWJjZA", "YWJjZA=x=", "Y W\nJ j", "", "====", "YQ==\u00e9", "\u00e9YQ=="]:
+        try:
+            decodes.append({"text": text, "bytes": list(base64.b64decode(text, validate=False))})
+        except ValueError:
+            decodes.append({"text": text, "bytes": None})
+    notes = []
+    for i in range(80):
+        roles = ["front", "wrist_l", "wrist_r"][: int(rng.integers(1, 4))]
+        cameras = {role: [[int(rng.integers(160, 1920)), int(rng.integers(120, 1080))] for _ in range(int(rng.integers(1, 3)))] for role in roles if rng.random() < 0.8}
+        frames = {}
+        for role in roles + (["depth"] if rng.random() < 0.2 else []):
+            if rng.random() < 0.5 and role in cameras:
+                w, h = cameras[role][0]
+                w = max(1, int(w * (1 + rng.uniform(-0.07, 0.07))))
+            else:
+                w, h = int(rng.integers(100, 1920)), int(rng.integers(100, 1080))
+            frames[f"video.{role}"] = [frame(i), jpeg_frame(i, w, h)]
+        prompts = [phrase() for _ in range(int(rng.integers(0, 4)))]
+        prompt = None if rng.random() < 0.1 else (prompts[0] if prompts and rng.random() < 0.3 else phrase())
+        trained = {"cameras": cameras, "prompts": prompts}
+        notes.append({"trained": trained, "frames": frames, "prompt": prompt, "notes": trained_inputs.notes(trained, "dream-1-ft:0a1b2c3d-x", frames, prompt)})
+    reprs = [{"text": t, "repr": repr(t)} for t in ["it's", 'say "hi"', "both ' and \"", "tab\tnew\nline", "\x00\x7f\x85\xa0", "\u200b\u2028\ue000", "\U0001f600 ok", "back\\slash",
+        # Unicode version boundaries: assigned after 15.0 (printed by a newer runtime, escaped by Python 3.12), and an
+        # unassigned code point.
+        "\U0001fae9 \U0001fa8f \u1c89 \U00031350", "\U000e0001 \U00100000"]]
+    formats = [{"x": x, "text": f"{x:.2f}"} for x in [1.125, 1.375, 0.625, 1.7777777, 4 / 3, 16 / 9, 2.005, 1.0, 0.125, 3.875]]
+    quotes = [{"text": t, "quoted": urllib.parse.quote(t, safe="")} for t in ["dream-1-ft:0a1b2c3d-towels", "a b/c?d#e", "x!'()*~._-", "naïve"]]
+    # A camera role named __proto__ is a role like any other.
+    proto = {"cameras": {"__proto__": [[640, 360]]}, "prompts": []}
+    proto_frames = {"video.__proto__": [jpeg_frame(3, 640, 480)]}
+    notes.append({"trained": proto, "frames": proto_frames, "prompt": None, "notes": trained_inputs.notes(proto, "dream-1-ft:0a1b2c3d-x", proto_frames, None)})
+    # float() as dream.arm_file reads a URDF's numbers: Unicode digits and whitespace, underscores, specials.
+    alphabet = list("0123456789._eE+-infaINF ") + ["\u0085", "\uff11", "\u0663", "\ufeff", "\u2003", "\x1c", "\u00b2", "\u2160"]
+    spellings = ["\uff11\uff12.\uff15", "\u0085 1.5 \u0085", "\ufeff1", "\u0663.\u0661\u0664", "1 2", " ", "", "\u0661_\u0662", "1e5_0", ".5_0", "1_000.000_1", "Infinity", "-inF", "+nan", "1\u00b2", "\u2160", "1e", "e1", "-.e1", "\x1c2\x1f"]
+    spellings += ["".join(rng.choice(alphabet, int(rng.integers(1, 9)))) for _ in range(400)]
+    floats = []
+    for spelling in spellings:
+        try:
+            value = float(spelling)
+            floats.append({"text": spelling, "value": None if value != value else (str(value) if value in (float("inf"), float("-inf")) else value)})
+        except ValueError:
+            floats.append({"text": spelling, "error": True})
+    bad = {"cameras": {"front": [None, [640, "x"], [0, 480], [640, 360, 1]], "wrist_l": "640x480", "wrist_r": [[640, 360]]}, "prompts": ["wave", None, 3]}
+    try:
+        bad_notes = trained_inputs.notes(bad, "dream-1-ft:0a1b2c3d-x", {"video.front": [jpeg_frame(1, 640, 480)], "video.wrist_r": [jpeg_frame(2, 640, 480)]}, "wave")
+    except Exception as error:  # Python fails on it; the port leaves the bad sizes out
+        bad_notes = f"{type(error).__name__}"
+    write("trained.json", {"ratios": ratios, "closest": closest, "plain": plain, "folds": folds, "sizes": sizes, "decodes": decodes, "notes": notes, "malformed": {"trained": bad, "python": bad_notes}, "floats": floats, "reprs": reprs, "formats": formats, "quotes": quotes})
+
+
+def frame_variant(rng: np.random.Generator, good: str) -> str:
+    """A frame `_jpeg_size` may refuse: cut short, without padding, with characters outside base64, or not a JPEG."""
+    kind = int(rng.integers(0, 4))
+    if kind == 0:
+        return good[: int(rng.integers(0, 16))]
+    if kind == 1:
+        return good.rstrip("=")
+    if kind == 2:
+        return good[:8] + "*\n" + good[8:]
+    return base64.b64encode(bytes(rng.integers(0, 256, 24, dtype=np.uint8))).decode()
+
+
 # ---------------------------------------------------------------- the wire, end to end
 
 
@@ -563,6 +687,9 @@ class Recorder(http.server.BaseHTTPRequestHandler):
     script: list = []
     log: list = []
     models: list = []
+    # The data service's GET /v1/fine_tuning/models/<id>/training_data, per checkpoint: (status, body); 404 not_found
+    # for any other checkpoint, as for a model that is not one of the account's fine-tunes.
+    training: dict = {}
 
     def log_message(self, *args):  # quiet
         pass
@@ -570,8 +697,12 @@ class Recorder(http.server.BaseHTTPRequestHandler):
     def _record(self, body):
         headers = {k: v for k, v in self.headers.items() if k.lower() in ("content-type", "authorization", "dream-client-version", "user-agent", "accept")}
         entry = {"method": self.command, "path": self.path, "headers": headers, "body": body}
+        training = re.fullmatch(r"/v1/fine_tuning/models/([^/]+)/training_data", self.path)
         if self.path == "/v1/models":
             reply = (200, json.dumps(Recorder.models))
+        elif training:
+            checkpoint = urllib.parse.unquote(training.group(1))
+            reply = Recorder.training.get(checkpoint, (404, json.dumps({"error": {"code": "not_found", "message": f"no fine-tune {checkpoint}"}})))
         else:
             reply = Recorder.script.pop(0)
         entry["reply"] = {"status": reply[0], "body": reply[1]}
@@ -631,9 +762,14 @@ def gen_wire(rng: np.random.Generator) -> None:
 
     import dream
     from dream import client as client_module
-    from dream import client_ik, transport
+    from dream import client_ik, facade, transport
 
     steady_cost_order()
+    # Two things a policy does on this computer, not on the wire, turned off in memory: the headers a client sends a
+    # local check server on 127.0.0.1 (where this recorder listens), and the reminder of the input check, which reads
+    # its record from the home directory.
+    client_ik.CHECK_HOST = None
+    facade._remind = lambda observation: None
     clock = Clock()
     client_module.time = types.SimpleNamespace(perf_counter=clock.perf_counter, monotonic=clock.monotonic, sleep=clock.sleep)
     # Each channel's User-Agent instance is random upstream, and the port is the OS's pick: both fixed here, so a
@@ -645,31 +781,52 @@ def gen_wire(rng: np.random.Generator) -> None:
     client_ik.threading = types.SimpleNamespace(Event=threading.Event, Thread=lambda target, name: types.SimpleNamespace(start=target))
     scenarios = []
 
-    def scenario(name, models, body):
+    def scenario(name, models, body, training=None):
         Recorder.models = models
+        Recorder.training = {checkpoint: (200, json.dumps(answer)) if isinstance(answer, dict) else answer for checkpoint, answer in (training or {}).items()}
         Recorder.log = []
         steps = []
         client = dream.DreamClient()
+        trips = []
+        client.on_round_trip(trips.append)
 
         def step(op, **fields):
             entry = {"op": op, **fields}
             start = len(Recorder.log)
-            try:
-                result = body_op(client, op, fields)
-                if result is not None:
-                    entry["result"] = result
-            except dream.DreamError as error:
-                entry["error"] = {"type": type(error).__name__, "message": str(error).replace(url, "http://127.0.0.1:PORT")}
-                for key in ("code", "reason", "retryable", "retry_after_s"):
-                    if hasattr(error, key):
-                        entry["error"][key] = getattr(error, key)
+            trips.clear()
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                try:
+                    result = body_op(client, op, fields)
+                    if result is not None:
+                        entry["result"] = result
+                except dream.DreamError as error:
+                    entry["error"] = {"type": type(error).__name__, "message": str(error).replace(url, "http://127.0.0.1:PORT")}
+                    for key in ("code", "reason", "retryable", "retry_after_s"):
+                        if hasattr(error, key):
+                            entry["error"][key] = getattr(error, key)
             entry["requests"] = Recorder.log[start:]
+            # What policy() and get_action() warned about a fine-tune's training inputs (not the slow-network warning).
+            entry["warnings"] = [str(w.message) for w in caught if not issubclass(w.category, dream.DreamSlowNetworkWarning)]
+            returned = entry.get("result", {}).get("action") if op == "get_action" else None
+            entry["round_trips"] = [
+                {
+                    "frames": trip.frames,
+                    "observation": trip.observation,
+                    # The action handed over is the very dict get_action() returned (compared in full in "result").
+                    "action": None if trip.action is None else ("returned" if trip.action is returned else "other"),
+                    "timing": None if trip.timing is None else {k: trip.timing.get(k) for k in ("serve_infer_ms", "gateway_ms")},
+                    "error": None if trip.error is None else type(trip.error).__name__,
+                    "trained": trip.trained,
+                }
+                for trip in trips
+            ]
             steps.append(entry)
             return entry
 
         body(client, step)
         client.close()
-        scenarios.append({"name": name, "models": models, "steps": steps})
+        scenarios.append({"name": name, "models": models, "training": Recorder.training, "steps": steps})
         print(f"wire {name}: {len(steps)} steps", file=sys.stderr)
 
     def body_op(client, op, fields):
@@ -774,7 +931,8 @@ def gen_wire(rng: np.random.Generator) -> None:
         return {"state.right_arm": q, "state.right_gripper": [0.2], "state.left_arm": -q, "state.left_gripper": [0.3], "prompt": "towels"}
 
     def parts_frames(i):
-        return {"video.front": frame(i), "video.wrist_r": frame(50 + i)}
+        # The front camera at 4:3 where the fine-tune was trained at 16:9 (a line); the wrist within its aspect.
+        return {"video.front": jpeg_frame(i, 640, 480), "video.wrist_r": jpeg_frame(50 + i, 320, 176)}
 
     def per_key_reply(q0, rows=48):
         t = np.arange(rows)[:, None]
@@ -799,10 +957,20 @@ def gen_wire(rng: np.random.Generator) -> None:
         step("get_action", sent_s=52.0, rtt_s=0.3, _replies=[ok(missing)])
         tick(step, {"video.front": frame(9), "video.wrist_r": frame(9)}, {k: v for k, v in parts_obs(4).items() if k != "state.left_gripper"}, 1.8)
         step("get_action", sent_s=53.0, rtt_s=0.3, _replies=[])
+        step("reset_episode", _replies=[(200, json.dumps({"status": {"code": "DA-0000"}}))])
+        tick(step, parts_frames(5), {**parts_obs(5), "prompt": "Fold  the towels!"}, 2.0)
+        step("get_action", sent_s=54.0, rtt_s=0.3, _replies=[ok(per_key_reply(parts_obs(5)["state.right_arm"]), code="DA-0001", reason="new", session="ses_c2")])
+        # A fine-tune the data service does not know (404 not_found: no lines), and one it cannot answer (a line).
+        step("policy", config={"checkpoint": "dream-1-ft:0a1b2c3d-unknown", "embodiment": body_config}, _replies=[(200, json.dumps({"status": {"code": "DA-0000"}}))])
+        step("policy", config={"checkpoint": "dream-1-ft:0a1b2c3d-flaky", "embodiment": body_config})
         step("policy", config={"checkpoint": "dream-1-ft:missing-model"})
-        step("close", _replies=[(200, json.dumps({"status": {"code": "DA-0000"}}))])
+        step("close", _replies=[])
 
-    scenario("custom body fine-tune: config from the platform, per_key checks, other_embodiment", [custom], custom_body)
+    custom_training = {
+        custom["id"]: {"cameras": {"front": [[640, 360], [1280, 720]], "wrist_r": [[640, 360]]}, "prompts": ["Fold the towels.", "stack the blocks"]},
+        "dream-1-ft:0a1b2c3d-flaky": (503, json.dumps({"error": {"code": "unavailable", "message": "the data service is restarting"}})),
+    }
+    scenario("custom body fine-tune: config from the platform, per_key checks, other_embodiment", [custom], custom_body, custom_training)
 
     # Client IK on a Metal arm, for the YAM-trained base model: zero joints, grip as gripper, cameras renamed.
     metal = UrdfArm("metal", "right")
@@ -903,12 +1071,13 @@ def gen_wire(rng: np.random.Generator) -> None:
         step("get_action", sent_s=40.0, rtt_s=0.3, _replies=[ok(eef_reply(20, **args), code="DA-0001", reason="new", session="ses_j")])
         step("close", _replies=[(200, json.dumps({"status": {"code": "DA-0000"}}))])
 
-    scenario("client IK on SO-101 for a fine-tune of the robot: units and the gripper drive", [so_model], so_body_fn)
+    so_training = {so_model["id"]: {"cameras": {"front": [[640, 480]], "wrist_l": [[640, 480]], "wrist_r": [[640, 480]]}, "prompts": ["stack them", "unstack"]}}
+    scenario("client IK on SO-101 for a fine-tune of the robot: units and the gripper drive", [so_model], so_body_fn, so_training)
     server.shutdown()
     write("wire.json", {"client_version": dream.__version__, "scenarios": scenarios})
 
 
-GENERATORS = {"window": gen_window, "pacing": gen_pacing, "smoothing": gen_smoothing, "fk": gen_fk, "ik": gen_ik, "client_ik": gen_client_ik, "wire": gen_wire}
+GENERATORS = {"window": gen_window, "pacing": gen_pacing, "smoothing": gen_smoothing, "fk": gen_fk, "ik": gen_ik, "client_ik": gen_client_ik, "trained": gen_trained, "wire": gen_wire}
 
 
 def main() -> None:

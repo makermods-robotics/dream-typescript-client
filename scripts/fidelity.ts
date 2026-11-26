@@ -296,7 +296,7 @@ export async function measureWire() {
       if (expected.path === "/v1/get_action") clock.ms += advance;
       return new Response(expected.reply.body, { status: expected.reply.status });
     };
-    const client = new DreamClient({ apiKey: "dk_test_key", baseUrl: "http://wire.test", platformUrl: "http://wire.test", fetch, now: () => clock.ms, onWarning: () => {} });
+    const client = new DreamClient({ apiKey: "dk_test_key", baseUrl: "https://wire.test", platformUrl: "https://wire.test", fetch, now: () => clock.ms, onWarning: () => {} });
     let ik = false;
     for (const step of scenario.steps) {
       queue = step.requests.filter((r: Json) => r.path !== "/v1/models");

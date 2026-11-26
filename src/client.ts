@@ -5,7 +5,7 @@
  * model answered. {@link DreamClient} (`facade.ts`) is the public front over it, adding the frame window.
  */
 
-import { checkServiceUrl, KEY_PER_SITE } from "./credentials.js";
+import { checkServiceUrl, KEY_PER_SITE, requireHttps, scrub } from "./credentials.js";
 import { check, checkPerKey, compileChecks, isEmbodimentConfig, isObject, type Checks, type ShapeEntry } from "./embodiment.js";
 import {
   detail,
@@ -20,18 +20,21 @@ import {
   DreamServerError,
   DreamSessionExpired,
   DreamSlowNetworkWarning,
+  type DreamWarning,
 } from "./errors.js";
 import { Pacer, type PacingMode } from "./pacing.js";
 import type { Kinematics } from "./seam-join.js";
 import { Watch } from "./slow-network.js";
-import { checkFiniteAction, every, firstHole } from "./finite.js";
+import { every, firstHole } from "./finite.js";
+import { checkAction, NO_DECLARED_HEADS, type DeclaredHeads } from "./actions.js";
 import { ARM_POSE_KEYS, SeamSmoother, SIDE_POSE_KEYS, type Fence, type Projection } from "./smoothing.js";
 import { cancelled, encode, END_SESSION_PATH, GET_ACTION_PATH, Transport, type FetchLike } from "./transport.js";
+import { firstInexact, unwrap, type RawJson } from "./json-raw.js";
 import { pyList, snapshot } from "./window.js";
 
 /** The robot a model trained on YAM arms runs on, as the serve reads it. */
 export const YAM = "yam";
-/** Any other robot: the serve withholds the arm's state (all zeros) and answers no joint head. */
+/** Any other robot: the serve may ignore the arm's state, and answers no joint head (only each hand's pose). */
 export const OTHER_EMBODIMENT = "other_embodiment";
 export const ROBOTS = [YAM, OTHER_EMBODIMENT] as const;
 export type Robot = (typeof ROBOTS)[number];
@@ -44,6 +47,21 @@ export const UNAVAILABLE = "DA-2000";
 export const BAD_REQUEST = "DA-4000";
 export const SERVE_FAILED = "DA-5000";
 export const INTERNAL = "DA-6000";
+/**
+ * Per envelope code, the reasons the gateway answers it with (`shared.contracts.envelope`, dreamlabs 1.0.42): what
+ * {@link DreamServerError.reason} holds. `DA-4000 client_outdated` is also what a checkpoint whose robot has parts
+ * answers this package ({@link CLIENT_VERSION}).
+ */
+export const REASONS = {
+  [OK_NEW_SESSION]: ["new", "expired", "unknown", "serve_died"],
+  [UNAUTHORIZED]: ["missing", "unknown_key", "disabled", "over_cap", "not_entitled", "region_not_supported"],
+  [UNAVAILABLE]: ["pool_full", "pool_warming", "rate_limited", "queue_timeout", "max_serves"],
+  [BAD_REQUEST]: ["malformed", "too_large", "unknown_op", "invalid_session_id", "global_op_rejected", "unknown_checkpoint", "client_outdated"],
+  [SERVE_FAILED]: ["timeout", "error", "unreachable", "capacity"],
+  [INTERNAL]: ["internal", "store_write_failed", "cannot_scale", "service_unavailable", "connection_timed_out"],
+} as const;
+/** A reason the gateway answers a code with ({@link REASONS}). */
+export type DreamReason = (typeof REASONS)[keyof typeof REASONS][number];
 /** Timeout of the session release resetEpisode() and close() send: a release, best effort. */
 export const END_SESSION_TIMEOUT_MS = 2000;
 /** Default per-request timeout, milliseconds. */
@@ -109,11 +127,21 @@ export interface GetActionReply {
  * `action.<part>` per action part, as rows; any other key the model adds is passed through.
  */
 export interface ActionDict {
-  q_r_chunk?: number[][];
-  q_l_chunk?: number[][];
-  per_key?: Record<string, number[][] | number[] | null>;
+  /**
+   * The right arm's chunk: rows `[H][joints + 1]`, joined onto the previous chunk. As in Python, a head that is not
+   * two-dimensional rows comes back as the model answered it (a bare number, a flat list, rows of rows), and so does
+   * null; see src/actions.ts for what any head may hold.
+   */
+  q_r_chunk?: number[][] | NumberArray | number | null;
+  /** The left arm's chunk, as `q_r_chunk`. */
+  q_l_chunk?: number[][] | NumberArray | number | null;
+  /** The model's parts: arrays of numbers (rows, one per step), null, or a label beside them. */
+  per_key?: Record<string, number[][] | NumberArray | number | string | boolean | null>;
   [key: string]: unknown;
 }
+
+/** Numbers in arrays, nested to any depth. */
+export type NumberArray = (number | NumberArray)[];
 
 /** One arm's IK solve of the most recent chunk, for {@link Diagnostics}. */
 export interface IkTrace {
@@ -234,11 +262,13 @@ export interface PolicyClientOptions {
   /** `baseUrl` is your proxy: send `Dream-Client-Instance` (8 hex) for it to build the `User-Agent` upstream. */
   proxyHeaders?: boolean;
   /** Receives a {@link DreamSlowNetworkWarning}; `console.warn` by default. */
-  onWarning?: (warning: DreamSlowNetworkWarning) => void;
+  onWarning?: (warning: DreamWarning) => void;
   /** Receives the {@link Diagnostics} of every successful getAction(); never throws out of it. */
   onDiagnostics?: (diagnostics: Diagnostics) => void;
   /** The clock, milliseconds on a monotonic scale; `performance.now` by default. */
   now?: () => number;
+  /** Let `apiKey` go to a plain `http://` gateway on another computer (see DreamClientOptions.allowInsecureHttp). */
+  allowInsecureHttp?: boolean;
 }
 
 /** Per chunk key, the joints the loop last commanded that arm: the arm's joints, or its whole written row. */
@@ -255,13 +285,15 @@ export class PolicyClient {
   readonly processing: Processing;
   private sessionIdValue: string | null = null;
   private readonly checks: Checks | null;
+  /** The heads the embodiment declares as numeric, checked as joint values whatever `strict` says (src/actions.ts). */
+  private readonly declared: DeclaredHeads;
   private readonly robot: Robot | null;
   private readonly ik: PolicyIk | null;
   private readonly smoother: SeamSmoother;
   private readonly pacer: Pacer;
   private readonly transport: Transport;
   private readonly watch = new Watch();
-  private readonly onWarning: (warning: DreamSlowNetworkWarning) => void;
+  private readonly onWarning: (warning: DreamWarning) => void;
   private readonly onDiagnostics: ((diagnostics: Diagnostics) => void) | null;
   private readonly now: () => number;
   private timing: Timing | null = null;
@@ -280,6 +312,8 @@ export class PolicyClient {
   private active: AbortController | null = null;
   private closing: Promise<void> | null = null;
   private closed = false;
+  /** The key, only to cut it from what a reply echoes. */
+  readonly #secret: string | null;
 
   /** @throws DreamConfigError A config value is wrong: see {@link DreamClient.policy}. */
   constructor(options: PolicyClientOptions) {
@@ -290,10 +324,13 @@ export class PolicyClient {
     this.checkpoint = checkpoint;
     this.baseUrl = checkServiceUrl(options.baseUrl, "baseUrl", true);
     if (this.baseUrl.startsWith("/") || this.baseUrl === "") {
-      if (typeof (globalThis as { location?: unknown }).location === "undefined") {
+      const scope = globalThis as { location?: unknown; document?: unknown };
+      if (typeof scope.location === "undefined" && typeof scope.document === "undefined") {
         throw new DreamConfigError(`baseUrl ${JSON.stringify(options.baseUrl)} is relative, which only a page or a worker can resolve; give an absolute URL`);
       }
     }
+    if (options.apiKey) requireHttps(this.baseUrl, "baseUrl", options.allowInsecureHttp);
+    this.#secret = options.apiKey || null;
     this.timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
     checkTimeout(this.timeoutMs);
     if (options.robot !== undefined && !ROBOTS.includes(options.robot)) {
@@ -318,6 +355,7 @@ export class PolicyClient {
       );
     }
     let checks = (options.strict ?? true) && embodiment !== undefined ? compileChecks(embodiment) : null;
+    this.declared = declaredHeads(embodiment);
     this.ik = ik;
     if (ik && checks) {
       checks = { ...checks, observation: ik.sentChecks(checks.observation), perKeyWidths: ik.replyWidths(checks.perKeyWidths) };
@@ -341,6 +379,7 @@ export class PolicyClient {
       now: this.now,
       clientVersion: options.clientVersion,
       proxyHeaders: options.proxyHeaders,
+      allowInsecureHttp: options.allowInsecureHttp,
     });
     this.onWarning = options.onWarning ?? ((warning) => console.warn(`${warning.name}: ${warning.message}`));
     this.onDiagnostics = options.onDiagnostics ?? null;
@@ -440,12 +479,13 @@ export class PolicyClient {
         checkPerKey(action as Record<string, unknown>, this.checks.perKeyWidths);
       }
       if (!isObject(action)) throw new DreamActionError(`the model's reply carries no action dict, got ${action === null ? "None" : typeof action}`);
-      checkFiniteAction(action);
+      checkAction(action, this.declared);
       const rttS = (this.now() - sentAt) / 1000;
       // The loop keeps running while the IK solves, so the chunk is installed that much later than the reply arrives.
       const ikLeadS = this.ik && execution.elapsedExecutionS === undefined ? this.predictIkMs() / 1000 : 0;
       const inFlightS = execution.elapsedExecutionS ?? rttS + (execution.observationAgeMs ?? 0) / 1000 + ikLeadS;
       if (this.processing === "raw") {
+        checkArmWidths(action, armJoints);
         this.finish(started, null, { raw: action, ik: null, inFlightS, ikLeadS, processing: "raw" });
         this.live(signal);
         return action as ActionDict;
@@ -475,6 +515,7 @@ export class PolicyClient {
           if (this.ikTimes.length > IK_LEAD_SOLVES) this.ikTimes.shift();
         }
       }
+      checkArmWidths(solved, armJoints);
       const joined = this.smoother.prepare(observation, solved, inFlightS, last);
       this.finish(started, ikMs, { raw: action, ik: trace, inFlightS, ikLeadS, processing: "default" });
       // A callback (onDiagnostics) may have cancelled or closed: then nothing is returned and no plan is kept.
@@ -638,9 +679,9 @@ export class PolicyClient {
       reset: false,
       observation: this.robot === null ? observation : { ...observation, embodiment: this.robot },
     };
-    let response: unknown;
+    let tree: RawJson;
     try {
-      response = await this.transport.request(request, GET_ACTION_PATH, { signal });
+      tree = await this.transport.request(request, GET_ACTION_PATH, { signal });
     } catch (error) {
       if (error instanceof DreamError) {
         this.timing = timingOf(this.transport, null);
@@ -649,10 +690,17 @@ export class PolicyClient {
       if (error instanceof TypeError) throw new DreamObservationError(unencodable(request.observation, error));
       throw error;
     }
+    // Plain values from here, every string and key without the key: a reply that echoes the request must not hand it
+    // to an error's fields or the caller.
+    const response = unwrap(tree, (text) => scrub(text, this.#secret));
     const reply = isObject(response) ? response : null;
     this.timing = timingOf(this.transport, reply?.timing);
     const status = reply?.status;
     if (!isObject(status) || typeof status.code !== "string") {
+      // createDreamProxy() refuses an action that breaks the action rules (src/actions.ts) as such.
+      if (reply?.proxy_error === "action refused") {
+        throw new DreamActionError(`the proxy refused the model's action: ${text(reply.detail) ?? "it breaks the action rules"}`, detail("shape", null));
+      }
       throw new DreamProtocolError("inference reply carries no status envelope; is the correct DreamAPI gateway running?");
     }
     const code = status.code;
@@ -660,9 +708,19 @@ export class PolicyClient {
     // Adopt whatever session the gateway says we are in: learnt on the first call, an echo after, unless replaced.
     const returned = reply!.session_id;
     if (typeof returned === "string" && returned) this.sessionIdValue = returned;
-    if (code === OK) return reply!.actions;
+    // An action is delivered only with every number as the reply wrote it: an integer a double cannot hold is refused.
+    const delivered = () => {
+      const actions = isObject(tree) ? (tree as Record<string, RawJson>).actions : undefined;
+      const inexact = actions === undefined ? null : firstInexact(actions);
+      if (inexact) {
+        // Not the token itself: a gateway that echoes an all-digit key would put it in the message.
+        throw new DreamActionError("the model's reply holds an integer a JavaScript number cannot hold exactly, so nothing is returned", detail("non_finite", null));
+      }
+      return reply!.actions;
+    };
+    if (code === OK) return delivered();
     if (code === OK_NEW_SESSION) {
-      if (sent === null || status.reason === "new") return reply!.actions;
+      if (sent === null || status.reason === "new") return delivered();
       throw new DreamSessionExpired(
         `inference session ${sent} was replaced by ${String(returned)} (${String(status.reason)}): the episode restarted server-side`,
         { code, reason: text(status.reason), envelope: status },
@@ -752,6 +810,28 @@ function commandedOf(commanded: Commanded | null, armJoints: Readonly<Record<str
 }
 
 /**
+ * Each arm's chunk, when it is rows and the arm's joint count is known: every row holds the joints and the grip.
+ *
+ * @throws DreamActionError A row is narrower: the smoother would join only the joints it has, and a loop would command
+ *   the arm from a truncated row.
+ */
+function checkArmWidths(action: Readonly<Record<string, unknown>>, armJoints: Readonly<Record<string, number | null>>): void {
+  for (const [key, joints] of Object.entries(armJoints)) {
+    const head = action[key];
+    if (joints === null || joints === undefined || !Object.hasOwn(action, key) || !Array.isArray(head)) continue;
+    const isRow = (r: unknown): r is ArrayLike<unknown> => Array.isArray(r) || (ArrayBuffer.isView(r) && !(r instanceof DataView));
+    for (let i = 0; i < head.length; i++) {
+      const row: unknown = head[i];
+      // Not rows (a flat list, as Python leaves it): checkAction() has held it to numbers.
+      if (!isRow(row)) continue;
+      if (row.length < joints + 1) {
+        throw new DreamActionError(`action key '${key}' row ${i} is ${row.length} wide; the arm has ${joints} joints and a grip, so nothing is returned`, detail("shape", key, i));
+      }
+    }
+  }
+}
+
+/**
  * One arm's chunk as takeoverAt() takes it: rows of finite numbers, `count` rows of `width` when given (the plan the
  * smoother kept for the latest reply), else rows of one width, at least `minWidth` (the arm's joints). Rows may be
  * arrays or typed arrays; a hole (a sparse array's missing row or number) is refused like a non-number. Returns the
@@ -835,3 +915,15 @@ function wholeMs(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
+
+/** The heads an embodiment declares as numeric, read whatever `strict` says; none when it cannot be read. */
+function declaredHeads(embodiment: unknown): DeclaredHeads {
+  if (embodiment === undefined) return NO_DECLARED_HEADS;
+  try {
+    const checks = compileChecks(embodiment);
+    if (!checks) return NO_DECLARED_HEADS;
+    return { action: Object.keys(checks.action).filter((key) => checks.action[key]!.shape !== undefined), perKey: Object.keys(checks.perKeyWidths) };
+  } catch {
+    return NO_DECLARED_HEADS;
+  }
+}

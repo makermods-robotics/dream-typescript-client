@@ -12,32 +12,28 @@
           },
           "upstream": {
             "dreamlabs": {
-              "record_sha256": "6f199a365d305202840d7216488b6cc54f3e8801bce5559bbbbd859a9c8b7b3d",
-              "version": "1.0.17",
-              "wheel": "dreamlabs-1.0.17-py3-none-any.whl",
-              "wheel_sha256": "458e51b1936a937c933a19fd2a206f9054e7abbd547ab354145ce63476806b7e"
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
             },
             "dreamlabs-client": {
-              "record_sha256": "9dba32cc1c818eb61686c4803252ff68098ba50551a780128dc3114a5ea69f23",
-              "version": "1.0.8",
-              "wheel": "dreamlabs_client-1.0.8-py3-none-any.whl",
-              "wheel_sha256": "c81513f21f6e97c063449bd416fddc00d814d727e535ad59e74ad80632d321bf"
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
             }
           },
           "versions": {
-            "dreamlabs": "1.0.17",
-            "dreamlabs-client": "1.0.8",
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
             "jax": "0.7.1",
             "jaxlib": "0.7.1",
-            "jaxls": "vendored in dreamlabs 1.0.17",
+            "jaxls": "vendored in dreamlabs 1.0.42",
             "numpy": "2.2.6",
-            "pyroki": "vendored in dreamlabs 1.0.17",
-            "python": "3.13.12",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
             "scipy": "1.18.1",
             "yourdfpy": "0.0.60"
           }
         },
-        "sha256": "dd340eebd4cd3b68ca94307753038fd7438f977658297023ea7b5bb3c6099c80",
+        "sha256": "e35c62682880dc1107f209111732c662f292f6dd80c235f1c74958f30850b06c",
         "urdfs": {
           "ai_worker_faas_left.urdf": "e7486ff84314919739c6de504b86177774958b9f89dd6f1094ad9ebfc056b319",
           "ai_worker_faas_right.urdf": "fe88d39c0053c4688a4b3d0015d4ae51cd4bafedcd1d0a1dc9ef6a3bfdbfe8b3",
@@ -63,6 +59,40 @@
       }
     }
   },
+  "gen_edge_replies": {
+    "files": {
+      "test/fixtures/edge_replies.json": {
+        "environment": {
+          "jaxls_sort_patch": false,
+          "settings": {
+            "JAX_PLATFORMS": null,
+            "OMP_NUM_THREADS": null,
+            "OPENBLAS_NUM_THREADS": null,
+            "XLA_FLAGS": null
+          },
+          "upstream": {
+            "dreamlabs": {
+              "record_sha256": "a08ef67138a29d499fa3f2ebb652051fcbb70cc93cbd532e31e4af66d9470c96",
+              "version": "1.0.42"
+            },
+            "dreamlabs-client": {
+              "record_sha256": "e66b0509e26acfd96f8be957fb2e8d529683e8c337c23eb82520631704dc0261",
+              "version": "1.1.7"
+            }
+          },
+          "versions": {
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
+            "jaxls": "vendored in dreamlabs 1.0.42",
+            "numpy": "2.2.6",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.13.5"
+          }
+        },
+        "sha256": "394f2824039a3baf9d7f86d2e43d9750afc3dddf52c831184fc0c29c5f841951"
+      }
+    }
+  },
   "gen_fixtures": {
     "base_seed": 20261023,
     "files": {
@@ -77,27 +107,23 @@
           },
           "upstream": {
             "dreamlabs": {
-              "record_sha256": "6f199a365d305202840d7216488b6cc54f3e8801bce5559bbbbd859a9c8b7b3d",
-              "version": "1.0.17",
-              "wheel": "dreamlabs-1.0.17-py3-none-any.whl",
-              "wheel_sha256": "458e51b1936a937c933a19fd2a206f9054e7abbd547ab354145ce63476806b7e"
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
             },
             "dreamlabs-client": {
-              "record_sha256": "9dba32cc1c818eb61686c4803252ff68098ba50551a780128dc3114a5ea69f23",
-              "version": "1.0.8",
-              "wheel": "dreamlabs_client-1.0.8-py3-none-any.whl",
-              "wheel_sha256": "c81513f21f6e97c063449bd416fddc00d814d727e535ad59e74ad80632d321bf"
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
             }
           },
           "versions": {
-            "dreamlabs": "1.0.17",
-            "dreamlabs-client": "1.0.8",
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
             "jax": "0.7.1",
             "jaxlib": "0.7.1",
-            "jaxls": "vendored in dreamlabs 1.0.17",
+            "jaxls": "vendored in dreamlabs 1.0.42",
             "numpy": "2.2.6",
-            "pyroki": "vendored in dreamlabs 1.0.17",
-            "python": "3.13.12",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
             "scipy": "1.18.1",
             "yourdfpy": "0.0.60"
           }
@@ -120,27 +146,23 @@
           },
           "upstream": {
             "dreamlabs": {
-              "record_sha256": "6f199a365d305202840d7216488b6cc54f3e8801bce5559bbbbd859a9c8b7b3d",
-              "version": "1.0.17",
-              "wheel": "dreamlabs-1.0.17-py3-none-any.whl",
-              "wheel_sha256": "458e51b1936a937c933a19fd2a206f9054e7abbd547ab354145ce63476806b7e"
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
             },
             "dreamlabs-client": {
-              "record_sha256": "9dba32cc1c818eb61686c4803252ff68098ba50551a780128dc3114a5ea69f23",
-              "version": "1.0.8",
-              "wheel": "dreamlabs_client-1.0.8-py3-none-any.whl",
-              "wheel_sha256": "c81513f21f6e97c063449bd416fddc00d814d727e535ad59e74ad80632d321bf"
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
             }
           },
           "versions": {
-            "dreamlabs": "1.0.17",
-            "dreamlabs-client": "1.0.8",
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
             "jax": "0.7.1",
             "jaxlib": "0.7.1",
-            "jaxls": "vendored in dreamlabs 1.0.17",
+            "jaxls": "vendored in dreamlabs 1.0.42",
             "numpy": "2.2.6",
-            "pyroki": "vendored in dreamlabs 1.0.17",
-            "python": "3.13.12",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
             "scipy": "1.18.1",
             "yourdfpy": "0.0.60"
           }
@@ -182,10 +204,34 @@
               "tool_m_redundant_capped": 0.002
             },
             "cases": 30,
+            "environment": {
+              "upstream": {
+                "dreamlabs": {
+                  "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+                  "version": "1.0.42"
+                },
+                "dreamlabs-client": {
+                  "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+                  "version": "1.1.7"
+                }
+              },
+              "versions": {
+                "dreamlabs": "1.0.42",
+                "dreamlabs-client": "1.1.7",
+                "jax": "0.7.1",
+                "jaxlib": "0.7.1",
+                "jaxls": "vendored in dreamlabs 1.0.42",
+                "numpy": "2.2.6",
+                "pyroki": "vendored in dreamlabs 1.0.42",
+                "python": "3.12.14",
+                "scipy": "1.18.1",
+                "yourdfpy": "0.0.60"
+              }
+            },
             "max": {
-              "dq_rad": 0.0033394992351531982,
-              "tool_m": 6.65627307023932e-05,
-              "tool_m_redundant_capped": 0.00043736133614122606
+              "dq_rad": 0.001626715064048767,
+              "tool_m": 1.6348684890671344e-05,
+              "tool_m_redundant_capped": 0.0002319607705777527
             },
             "patched_rerun_exact": true,
             "settings": {
@@ -206,27 +252,23 @@
           },
           "upstream": {
             "dreamlabs": {
-              "record_sha256": "6f199a365d305202840d7216488b6cc54f3e8801bce5559bbbbd859a9c8b7b3d",
-              "version": "1.0.17",
-              "wheel": "dreamlabs-1.0.17-py3-none-any.whl",
-              "wheel_sha256": "458e51b1936a937c933a19fd2a206f9054e7abbd547ab354145ce63476806b7e"
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
             },
             "dreamlabs-client": {
-              "record_sha256": "9dba32cc1c818eb61686c4803252ff68098ba50551a780128dc3114a5ea69f23",
-              "version": "1.0.8",
-              "wheel": "dreamlabs_client-1.0.8-py3-none-any.whl",
-              "wheel_sha256": "c81513f21f6e97c063449bd416fddc00d814d727e535ad59e74ad80632d321bf"
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
             }
           },
           "versions": {
-            "dreamlabs": "1.0.17",
-            "dreamlabs-client": "1.0.8",
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
             "jax": "0.7.1",
             "jaxlib": "0.7.1",
-            "jaxls": "vendored in dreamlabs 1.0.17",
+            "jaxls": "vendored in dreamlabs 1.0.42",
             "numpy": "2.2.6",
-            "pyroki": "vendored in dreamlabs 1.0.17",
-            "python": "3.13.12",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
             "scipy": "1.18.1",
             "yourdfpy": "0.0.60"
           }
@@ -260,27 +302,23 @@
           },
           "upstream": {
             "dreamlabs": {
-              "record_sha256": "6f199a365d305202840d7216488b6cc54f3e8801bce5559bbbbd859a9c8b7b3d",
-              "version": "1.0.17",
-              "wheel": "dreamlabs-1.0.17-py3-none-any.whl",
-              "wheel_sha256": "458e51b1936a937c933a19fd2a206f9054e7abbd547ab354145ce63476806b7e"
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
             },
             "dreamlabs-client": {
-              "record_sha256": "9dba32cc1c818eb61686c4803252ff68098ba50551a780128dc3114a5ea69f23",
-              "version": "1.0.8",
-              "wheel": "dreamlabs_client-1.0.8-py3-none-any.whl",
-              "wheel_sha256": "c81513f21f6e97c063449bd416fddc00d814d727e535ad59e74ad80632d321bf"
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
             }
           },
           "versions": {
-            "dreamlabs": "1.0.17",
-            "dreamlabs-client": "1.0.8",
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
             "jax": "0.7.1",
             "jaxlib": "0.7.1",
-            "jaxls": "vendored in dreamlabs 1.0.17",
+            "jaxls": "vendored in dreamlabs 1.0.42",
             "numpy": "2.2.6",
-            "pyroki": "vendored in dreamlabs 1.0.17",
-            "python": "3.13.12",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
             "scipy": "1.18.1",
             "yourdfpy": "0.0.60"
           }
@@ -303,27 +341,23 @@
           },
           "upstream": {
             "dreamlabs": {
-              "record_sha256": "6f199a365d305202840d7216488b6cc54f3e8801bce5559bbbbd859a9c8b7b3d",
-              "version": "1.0.17",
-              "wheel": "dreamlabs-1.0.17-py3-none-any.whl",
-              "wheel_sha256": "458e51b1936a937c933a19fd2a206f9054e7abbd547ab354145ce63476806b7e"
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
             },
             "dreamlabs-client": {
-              "record_sha256": "9dba32cc1c818eb61686c4803252ff68098ba50551a780128dc3114a5ea69f23",
-              "version": "1.0.8",
-              "wheel": "dreamlabs_client-1.0.8-py3-none-any.whl",
-              "wheel_sha256": "c81513f21f6e97c063449bd416fddc00d814d727e535ad59e74ad80632d321bf"
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
             }
           },
           "versions": {
-            "dreamlabs": "1.0.17",
-            "dreamlabs-client": "1.0.8",
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
             "jax": "0.7.1",
             "jaxlib": "0.7.1",
-            "jaxls": "vendored in dreamlabs 1.0.17",
+            "jaxls": "vendored in dreamlabs 1.0.42",
             "numpy": "2.2.6",
-            "pyroki": "vendored in dreamlabs 1.0.17",
-            "python": "3.13.12",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
             "scipy": "1.18.1",
             "yourdfpy": "0.0.60"
           }
@@ -337,6 +371,45 @@
           "metal.urdf": "ae62705f3d3f2ce71760cdf23da9166dedb038e99565445fd719daafc90f44cf"
         }
       },
+      "test/fixtures/trained.json": {
+        "environment": {
+          "jaxls_sort_patch": false,
+          "settings": {
+            "JAX_PLATFORMS": "cpu",
+            "OMP_NUM_THREADS": null,
+            "OPENBLAS_NUM_THREADS": "1",
+            "XLA_FLAGS": "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+          },
+          "upstream": {
+            "dreamlabs": {
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
+            },
+            "dreamlabs-client": {
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
+            }
+          },
+          "versions": {
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
+            "jax": "0.7.1",
+            "jaxlib": "0.7.1",
+            "jaxls": "vendored in dreamlabs 1.0.42",
+            "numpy": "2.2.6",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
+            "scipy": "1.18.1",
+            "yourdfpy": "0.0.60"
+          }
+        },
+        "seed": [
+          20261023,
+          834780529
+        ],
+        "sha256": "0cd5b324192f53f7886d084e525b2fd3f6f1b06918bdeb5c982b0261d67c5f57",
+        "urdfs": {}
+      },
       "test/fixtures/window.json": {
         "environment": {
           "jaxls_sort_patch": false,
@@ -348,27 +421,23 @@
           },
           "upstream": {
             "dreamlabs": {
-              "record_sha256": "6f199a365d305202840d7216488b6cc54f3e8801bce5559bbbbd859a9c8b7b3d",
-              "version": "1.0.17",
-              "wheel": "dreamlabs-1.0.17-py3-none-any.whl",
-              "wheel_sha256": "458e51b1936a937c933a19fd2a206f9054e7abbd547ab354145ce63476806b7e"
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
             },
             "dreamlabs-client": {
-              "record_sha256": "9dba32cc1c818eb61686c4803252ff68098ba50551a780128dc3114a5ea69f23",
-              "version": "1.0.8",
-              "wheel": "dreamlabs_client-1.0.8-py3-none-any.whl",
-              "wheel_sha256": "c81513f21f6e97c063449bd416fddc00d814d727e535ad59e74ad80632d321bf"
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
             }
           },
           "versions": {
-            "dreamlabs": "1.0.17",
-            "dreamlabs-client": "1.0.8",
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
             "jax": "0.7.1",
             "jaxlib": "0.7.1",
-            "jaxls": "vendored in dreamlabs 1.0.17",
+            "jaxls": "vendored in dreamlabs 1.0.42",
             "numpy": "2.2.6",
-            "pyroki": "vendored in dreamlabs 1.0.17",
-            "python": "3.13.12",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
             "scipy": "1.18.1",
             "yourdfpy": "0.0.60"
           }
@@ -391,27 +460,23 @@
           },
           "upstream": {
             "dreamlabs": {
-              "record_sha256": "6f199a365d305202840d7216488b6cc54f3e8801bce5559bbbbd859a9c8b7b3d",
-              "version": "1.0.17",
-              "wheel": "dreamlabs-1.0.17-py3-none-any.whl",
-              "wheel_sha256": "458e51b1936a937c933a19fd2a206f9054e7abbd547ab354145ce63476806b7e"
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
             },
             "dreamlabs-client": {
-              "record_sha256": "9dba32cc1c818eb61686c4803252ff68098ba50551a780128dc3114a5ea69f23",
-              "version": "1.0.8",
-              "wheel": "dreamlabs_client-1.0.8-py3-none-any.whl",
-              "wheel_sha256": "c81513f21f6e97c063449bd416fddc00d814d727e535ad59e74ad80632d321bf"
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
             }
           },
           "versions": {
-            "dreamlabs": "1.0.17",
-            "dreamlabs-client": "1.0.8",
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
             "jax": "0.7.1",
             "jaxlib": "0.7.1",
-            "jaxls": "vendored in dreamlabs 1.0.17",
+            "jaxls": "vendored in dreamlabs 1.0.42",
             "numpy": "2.2.6",
-            "pyroki": "vendored in dreamlabs 1.0.17",
-            "python": "3.13.12",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
             "scipy": "1.18.1",
             "yourdfpy": "0.0.60"
           }
@@ -420,12 +485,50 @@
           20261023,
           2960865589
         ],
-        "sha256": "a871ec76bb907e40dcbc298ee5d24aeb0b49a199c94dc4e4b2eaf4cec6a7d891",
+        "sha256": "4ebf1ad680887e859348f1c07cb433a00323b37fcad5bdd32486dde6827e7427",
         "urdfs": {
           "metal.urdf": "ae62705f3d3f2ce71760cdf23da9166dedb038e99565445fd719daafc90f44cf",
           "so101_faas_left.urdf": "1aebfd59fafcd0adb4df74ad1a0ee156a06ac7f1bed0fdca76912458266ced00",
           "so101_faas_right.urdf": "bdf70bd7988780833c507ec4e1543005845662c54dae5fee56dd6e0845eb8aae"
         }
+      }
+    }
+  },
+  "replay_limit_stop": {
+    "files": {
+      "test/fixtures/limit_stop.json": {
+        "environment": {
+          "jaxls_sort_patch": false,
+          "settings": {
+            "JAX_PLATFORMS": "cpu",
+            "OMP_NUM_THREADS": null,
+            "OPENBLAS_NUM_THREADS": null,
+            "XLA_FLAGS": "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
+          },
+          "upstream": {
+            "dreamlabs": {
+              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "version": "1.0.42"
+            },
+            "dreamlabs-client": {
+              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "version": "1.1.7"
+            }
+          },
+          "versions": {
+            "dreamlabs": "1.0.42",
+            "dreamlabs-client": "1.1.7",
+            "jax": "0.7.1",
+            "jaxlib": "0.7.1",
+            "jaxls": "vendored in dreamlabs 1.0.42",
+            "numpy": "2.2.6",
+            "pyroki": "vendored in dreamlabs 1.0.42",
+            "python": "3.12.14",
+            "scipy": "1.18.1",
+            "yourdfpy": "0.0.60"
+          }
+        },
+        "sha256": "a725cb7e8d3b3981e2cf4966e6806e8e027ce8ebad6f61a17be1664f1a05986c"
       }
     }
   }

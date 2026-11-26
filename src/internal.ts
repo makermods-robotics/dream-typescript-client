@@ -28,8 +28,26 @@ export {
 } from "./client.js";
 export { detail } from "./errors.js";
 export {
+  ASPECT_TOLERANCE,
+  b64decode,
+  casefold,
+  checkedTrainedInputs,
+  CLOSE_PROMPT,
+  closestMatch,
+  fetchTrainedInputs,
+  fixed2,
+  jpegSize,
+  plain as plainPrompt,
+  pyQuote,
+  pyRepr,
+  sequenceRatio,
+  trainedNotes,
+  trainingDataPath,
+} from "./trained-inputs.js";
+export {
   API_KEY_ENV,
   authorization,
+  checkServiceUrl,
   DATA_URL_ENV,
   DEFAULT_DATA_URL,
   DEFAULT_FILE,
@@ -87,14 +105,17 @@ export {
   encode,
   END_SESSION_PATH,
   GET_ACTION_PATH,
+  MAX_REPLY_BYTES,
   Transport,
   USER_AGENT_PRODUCT,
   type Exchange,
   type TransportOptions,
 } from "./transport.js";
-export { checkFiniteAction, every, firstFailing, firstHole, firstNonFinite, isNumbers } from "./finite.js";
+export { every, firstFailing, firstHole, firstNonFinite, isNumbers } from "./finite.js";
+export { actuatorHeads, checkAction, CHUNK_HEADS, type DeclaredHeads } from "./actions.js";
+export { firstInexact, parseRaw, RawNumber, setOwn, unwrap, writeRaw, type RawJson } from "./json-raw.js";
 export { invert, mul3, quaternion, ROT6_MIN_NORM, rotationMatrix, rotvec, rpyMatrix, solveLinear, transpose3 } from "./linalg.js";
 export { extendPoses, headPoses, MAX_SOLVE_ROWS, SERVE, seamBlend, smoothPoses } from "./ik/decode.js";
 export { capStep, maxStep, solve, solveTraj, TRAJ_FEW_JOINTS_ORI_SCALE, TRAJ_WEIGHTS } from "./ik/solver.js";
 export { cameraSlots, checkIkConfig, clampToReach, EEF_STATE_PARTS, MODEL_JOINT_ROWS, REACH_RADIUS_M, REACH_SLACK_M, reachFence, SIDES, Wire } from "./ik/client-ik.js";
-export { MAX_SPEED, parseXml, toolAxes, type XmlElement } from "./ik/urdf.js";
+export { ARM_FILE_KEYS, ARM_FILE_OPTIONAL_KEYS, MAX_SPEED, parseXml, toolAxes, type XmlElement } from "./ik/urdf.js";

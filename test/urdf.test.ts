@@ -77,9 +77,32 @@ describe("defineArm refuses a malformed URDF", () => {
     expect(defineArm(file, narrow).sideArm("right").lo[2]).toBeLessThan(defineArm(file, narrow).sideArm("right").hi[2]!);
   });
 
-  it("takes a continuous joint as revolute within [-pi, pi]", () => {
-    const model = defineArm(file, edit('name="joint6" type="revolute"', 'name="joint6" type="continuous"')).sideArm("right");
-    expect(model.data.limits[5]).toEqual([-Math.PI, Math.PI]);
+  it("refuses a continuous joint and the key `fixed`, as dream.arm_file 1.1", () => {
+    refuses(edit('name="joint6" type="revolute"', 'name="joint6" type="continuous"'), /joint 'joint6' between 'base_link' and 'link6' is continuous; the chain takes fixed joints, and revolute and prismatic joints with limits/);
+    expect(() => defineArm({ ...file, fixed: ["joint6"] } as typeof file, metalUrdf)).toThrow(/arm file must be an object with the keys \['urdf', 'base', 'flange', 'tcp', 'approach', 'jaw', 'rest'\], and maybe \['tcp_calibration'\], got \[.*'fixed'/);
+    expect(() => defineArm({ ...file, tcp_calibration: { at: "2026-11-01" } }, metalUrdf)).not.toThrow();
+  });
+
+  it("reads numbers as Python's float(): no hex, binary or octal spellings, underscores between digits", () => {
+    refuses(edit('lower="0" upper="3.14"', 'lower="0" upper="0x10"'), /joint 'joint3' has limits \["0","0x10"\], not finite numbers/);
+    refuses(edit('lower="0" upper="3.14"', 'lower="0b0" upper="3.14"'), /not finite numbers/);
+    refuses(edit('<origin xyz="-0.28 0 0"', '<origin xyz="-0x1 0 0"'), /has origin xyz "-0x1 0 0", not 3 finite numbers/);
+    refuses(edit('lower="0" upper="3.14"', 'lower="0" upper="inf"'), /not finite numbers/);
+    refuses(edit('lower="0" upper="3.14"', 'lower="0" upper="1__0"'), /not finite numbers/);
+    expect(defineArm(file, edit('lower="0" upper="3.14"', 'lower="0" upper="3_1.4e-0_1 "')).sideArm("right").data.limits[2]).toEqual([0, 3.14]);
+    expect(defineArm(file, edit('lower="0" upper="3.14"', 'lower=" +0." upper="3.14"')).sideArm("right").data.limits[2]).toEqual([0, 3.14]);
+  });
+
+  it("reads Unicode digits and whitespace as Python's float(), and refuses a leading U+FEFF and a blank velocity", () => {
+    expect(defineArm(file, edit('lower="0" upper="3.14"', 'lower="\u0085 0 " upper="\uff13.\uff11\uff14"')).sideArm("right").data.limits[2]).toEqual([0, 3.14]);
+    refuses(edit('lower="0" upper="3.14"', 'lower="\ufeff0" upper="3.14"'), /not finite numbers/);
+    refuses(edit('lower="0" upper="3.14" velocity="5"', 'lower="0" upper="3.14" velocity=" "'), /has velocity " ", not a finite number/);
+    expect(defineArm(file, edit('lower="0" upper="3.14" velocity="5"', 'lower="0" upper="3.14" velocity=""'))).toBeDefined();
+  });
+
+  it("splits a vector as Python's str.split(): U+0085 separates, U+FEFF does not", () => {
+    expect(defineArm(file, edit('<origin xyz="-0.28 0 0"', '<origin xyz="-0.28\u00850\u20030"'))).toBeDefined();
+    refuses(edit('<origin xyz="-0.28 0 0"', '<origin xyz="-0.28\ufeff0 0"'), /not 3 finite numbers/);
   });
 
   it("keeps rest inside the URDF limits, as Python", () => {

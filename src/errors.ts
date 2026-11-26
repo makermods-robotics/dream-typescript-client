@@ -166,3 +166,23 @@ export class DreamSessionExpired extends DreamServerError {
 export class DreamSlowNetworkWarning extends Error {
   override name = "DreamSlowNetworkWarning";
 }
+
+/**
+ * Not an error: the frames or the prompt a fine-tune is sent differ from what it was trained on, or what it was trained
+ * on could not be read (`dream.trained_inputs`, a `UserWarning` in Python). Handed to the client's `onWarning`, each
+ * line once a policy, never thrown.
+ */
+export class DreamTrainingWarning extends Error {
+  override name = "DreamTrainingWarning";
+}
+
+/**
+ * Not an error: a promise an `onRoundTrip()` callback returned was rejected. The callbacks are synchronous: what one
+ * throws is thrown out of getAction(), but a promise it returns is not waited for, and its rejection is reported here.
+ */
+export class DreamCallbackWarning extends Error {
+  override name = "DreamCallbackWarning";
+}
+
+/** What a client hands its `onWarning`. */
+export type DreamWarning = DreamSlowNetworkWarning | DreamTrainingWarning | DreamCallbackWarning;

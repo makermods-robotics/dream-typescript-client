@@ -1,15 +1,16 @@
 /**
  * An arm of your own (`dream.arm_file`): dream_ik's model of it from its URDF and the keys of an arm file.
  *
- * The URDF is cut to the chain from `base` to `flange`; each joint on it is fixed, revolute or prismatic with limits,
- * or continuous (taken as revolute within [-pi, pi]); a joint `fixed` names is cut as fixed at its URDF zero. The
- * arm's joints are the chain's other moving joints in order from `base`, radians (metres for a prismatic one), kept 2
- * degrees inside their limits and under their URDF velocity, at most 3 rad/s (a velocity of 0 takes 3).
+ * The URDF is cut to the chain from `base` to `flange`; each joint on it is fixed, or revolute or prismatic with limits
+ * and no mimic. The arm's joints are the chain's moving joints in order from `base`, radians (metres for a prismatic
+ * one), kept 2 degrees inside their limits and under their URDF velocity, at most 3 rad/s (a velocity of 0 takes 3).
  *
  * Python reads the arm file and the URDF from disk; here you pass their contents, so it runs in a browser too.
  */
 
 import { DreamConfigError } from "../errors.js";
+import { pyFloat, pySplit } from "../pyfloat.js";
+import { pyList } from "../window.js";
 import { every, isNumbers } from "../finite.js";
 import { cross3, dot3, norm3, scale3, sub3, type Vec3 } from "../linalg.js";
 import { Embodiment, type ArmData, type JointData } from "./arms.js";
@@ -30,11 +31,14 @@ export interface ArmFile {
   jaw: number[];
   /** The arm's joints in a working pose, radians: the pose the solve leans toward. */
   rest: number[];
-  /** Joints on the chain the robot holds still, cut as fixed joints at their URDF zero. */
-  fixed?: string[];
   /** The setup tools' record of the tool point; not checked here. */
   tcp_calibration?: unknown;
 }
+
+/** The keys an arm file has (`arm_file.KEYS`); `urdf` may be left out here, since the URDF's text is passed. */
+export const ARM_FILE_KEYS = ["urdf", "base", "flange", "tcp", "approach", "jaw", "rest"] as const;
+/** The keys an arm file may also have (`arm_file.OPTIONAL_KEYS`). */
+export const ARM_FILE_OPTIONAL_KEYS = ["tcp_calibration"] as const;
 
 /** The joint speed cap, rad/s, where the URDF's is higher or unset. */
 export const MAX_SPEED = 3.0;
@@ -211,8 +215,14 @@ const ENTITIES = new Map([["lt", "<"], ["gt", ">"], ["amp", "&"], ["quot", '"'],
 const NOT_XML_CHAR = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 const xmlChar = (c: number) => c === 0x9 || c === 0xa || c === 0xd || (c >= 0x20 && c <= 0xd7ff) || (c >= 0xe000 && c <= 0xfffd) || (c >= 0x10000 && c <= 0x10ffff);
 const child = (element: XmlElement, tag: string) => element.children.find((c) => c.tag === tag);
-/** A URDF number: NaN for an empty attribute, which Number would read as 0. */
-const number = (text: string) => (text.trim() ? Number(text) : NaN);
+/**
+ * A URDF number as Python's `float()` reads it (`dream.arm_file`, {@link pyFloat}): NaN for anything it refuses, such
+ * as `0x10`, `0b1`, a leading U+FEFF or a blank attribute, which `Number` would read as 16, 1 or 0. Callers then
+ * require it finite.
+ */
+export function number(text: string): number {
+  return pyFloat(text);
+}
 
 /**
  * dream_ik's spec of an arm from its URDF's text and an arm file's keys (`arm_file.register`): one arm, run on both
@@ -221,6 +231,11 @@ const number = (text: string) => (text.trim() ? Number(text) : NaN);
  * @throws DreamConfigError The arm file's keys or the URDF are malformed, or the chain cannot be solved for.
  */
 export function defineArm(file: ArmFile, urdfText: string, name = "file"): Embodiment {
+  const known = new Set<string>([...ARM_FILE_KEYS, ...ARM_FILE_OPTIONAL_KEYS]);
+  if (typeof file !== "object" || file === null || Array.isArray(file) || Object.keys(file).some((key) => !known.has(key))) {
+    const got = typeof file === "object" && file !== null && !Array.isArray(file) ? pyList(Object.keys(file).sort()) : Array.isArray(file) ? "list" : typeof file;
+    throw new DreamConfigError(`arm file must be an object with the keys ${pyList([...ARM_FILE_KEYS])}, and maybe ${pyList([...ARM_FILE_OPTIONAL_KEYS])}, got ${got}`);
+  }
   for (const key of ["base", "flange"] as const) {
     if (typeof file[key] !== "string" || !file[key]) throw new DreamConfigError(`arm file: ${key} must be a name, got ${JSON.stringify(file[key])}`);
   }
@@ -228,8 +243,6 @@ export function defineArm(file: ArmFile, urdfText: string, name = "file"): Embod
     if (!finiteList(file[key]) || file[key].length !== 3) throw new DreamConfigError(`arm file: ${key} must be 3 numbers [x, y, z], got ${JSON.stringify(file[key])}`);
   }
   if (!finiteList(file.rest) || !file.rest.length) throw new DreamConfigError(`arm file: rest must be the arm's joints in radians, got ${JSON.stringify(file.rest)}`);
-  const fixed = file.fixed ?? [];
-  if (!Array.isArray(fixed) || !every(fixed, (n) => typeof n === "string")) throw new DreamConfigError(`arm file: fixed must be a list of joint names, got ${JSON.stringify(fixed)}`);
   const robot = parseXml(urdfText);
   const links = new Set(robot.children.filter((c) => c.tag === "link").map((c) => attribute(c, "name")));
   for (const [key, link] of [["base", file.base], ["flange", file.flange]] as const) {
@@ -257,27 +270,18 @@ export function defineArm(file: ArmFile, urdfText: string, name = "file"): Embod
   const joints: string[] = [];
   const limits: number[][] = [];
   const speeds: number[] = [];
-  const held: string[] = [];
   for (const joint of path) {
     const jointName = attribute(joint, "name");
-    let kind = joint.attributes.type;
+    const kind = joint.attributes.type;
     const entry: JointData = { name: jointName, type: "fixed", xyz: vector(joint, "origin", "xyz", [0, 0, 0]), rpy: vector(joint, "origin", "rpy", [0, 0, 0]) };
     chain.push(entry);
     if (kind === "fixed") continue;
-    if (fixed.includes(jointName)) {
-      held.push(jointName);
-      continue;
-    }
     const mimic = child(joint, "mimic") !== undefined;
-    let limit = child(joint, "limit")?.attributes ?? null;
-    if (kind === "continuous" && !mimic) {
-      limit = { ...(limit ?? {}), lower: String(-Math.PI), upper: String(Math.PI) };
-      kind = "revolute";
-    }
+    const limit = child(joint, "limit")?.attributes ?? null;
     if ((kind !== "revolute" && kind !== "prismatic") || mimic) {
       throw new DreamConfigError(
         `arm file: joint '${jointName}' between '${file.base}' and '${file.flange}' is ${kind}${mimic ? " with a mimic" : ""}; the chain takes ` +
-          "fixed joints, revolute and prismatic joints with limits, and continuous joints, none with a mimic",
+          "fixed joints, and revolute and prismatic joints with limits",
       );
     }
     if (!limit || limit.lower === undefined || limit.upper === undefined) throw new DreamConfigError(`arm file: joint '${jointName}' has no lower and upper limit in the URDF`);
@@ -288,7 +292,8 @@ export function defineArm(file: ArmFile, urdfText: string, name = "file"): Embod
     // The solve keeps inside the margined limits (Arm.lo/hi); Python lets them cross and the solve then clips to garbage.
     if (!(lo + LIMIT_MARGIN < hi - LIMIT_MARGIN)) throw new DreamConfigError(`arm file: joint '${jointName}' has limits [${lo}, ${hi}], no range left 2 degrees inside them`);
     // No velocity, or an empty one, takes MAX_SPEED as in Python, as does 0 below.
-    const velocity = limit.velocity === undefined || !limit.velocity.trim() ? 0 : Number(limit.velocity);
+    // As Python's `float(limit.get("velocity") or 0.0)`: absent or empty is 0; a blank one is refused.
+    const velocity = limit.velocity === undefined || limit.velocity === "" ? 0 : number(limit.velocity);
     if (!(Number.isFinite(velocity) && velocity >= 0)) throw new DreamConfigError(`arm file: joint '${jointName}' has velocity ${JSON.stringify(limit.velocity)}, not a finite number of at least 0`);
     const axis = vector(joint, "axis", "xyz", [1, 0, 0]);
     const length = Math.hypot(...axis);
@@ -299,8 +304,6 @@ export function defineArm(file: ArmFile, urdfText: string, name = "file"): Embod
     limits.push([lo, hi]);
     speeds.push(velocity <= 0 ? MAX_SPEED : Math.min(velocity, MAX_SPEED));
   }
-  const unknown = fixed.filter((n) => !held.includes(n));
-  if (unknown.length) throw new DreamConfigError(`arm file: fixed names '${unknown[0]}', which is not a moving joint on the chain from '${file.base}' to '${file.flange}': ${JSON.stringify([...joints, ...held])}`);
   if (!joints.length) throw new DreamConfigError(`arm file: the chain from '${file.base}' to '${file.flange}' has no moving joint`);
   if (file.rest.length !== joints.length) {
     throw new DreamConfigError(`arm file: rest has ${file.rest.length} joints, the chain from '${file.base}' to '${file.flange}' has ${joints.length}: ${JSON.stringify(joints)}`);
@@ -360,7 +363,8 @@ function linkOf(joint: XmlElement, end: "parent" | "child"): string {
 function vector(joint: XmlElement, tag: "origin" | "axis", key: "xyz" | "rpy", fallback: number[]): number[] {
   const text = child(joint, tag)?.attributes[key];
   if (text === undefined) return fallback;
-  const values = text.trim().split(/\s+/).map(number);
+  // Split as Python's str.split() does: U+0085 separates, U+FEFF does not.
+  const values = pySplit(text).map(number);
   if (values.length !== 3 || !values.every(Number.isFinite)) throw new DreamConfigError(`arm file: joint '${joint.attributes.name}' has ${tag} ${key} ${JSON.stringify(text)}, not 3 finite numbers`);
   return values;
 }

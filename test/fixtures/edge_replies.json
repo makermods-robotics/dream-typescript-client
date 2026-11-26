@@ -1,0 +1,5080 @@
+{
+ "cases": [
+  {
+   "deliberate": {},
+   "name": "valid chunk",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "not_a_number",
+    "proxy": "not_a_number",
+    "raw": "not_a_number"
+   },
+   "name": "q_r_chunk leaf string number",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.5,
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.5,
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2],[\"0.5\",0.3]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "per_key part leaf string number",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         "0.5",
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         "0.5",
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[0.1,0.2],[\"0.5\",0.3]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "declared head leaf string number",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        "0.5",
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        "0.5",
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"head\":[[0.1,0.2],[\"0.5\",0.3]]}}",
+   "spec": {
+    "action": {
+     "head": {
+      "shape": [
+       2,
+       2
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk leaf string word",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2],[\"x\",0.3]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "per_key part leaf string word",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         "x",
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         "x",
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[0.1,0.2],[\"x\",0.3]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "declared head leaf string word",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        "x",
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        "x",
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"head\":[[0.1,0.2],[\"x\",0.3]]}}",
+   "spec": {
+    "action": {
+     "head": {
+      "shape": [
+       2,
+       2
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {
+    "direct": "not_a_number",
+    "proxy": "not_a_number",
+    "raw": "not_a_number"
+   },
+   "name": "q_r_chunk leaf true",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        1.0,
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        1.0,
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2],[true,0.3]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "per_key part leaf true",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         true,
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         true,
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[0.1,0.2],[true,0.3]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "declared head leaf true",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        true,
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        true,
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"head\":[[0.1,0.2],[true,0.3]]}}",
+   "spec": {
+    "action": {
+     "head": {
+      "shape": [
+       2,
+       2
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk leaf object",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2],[{\"x\":0},0.3]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "per_key part leaf object",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         {
+          "x": 0
+         },
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         {
+          "x": 0
+         },
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[0.1,0.2],[{\"x\":0},0.3]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "declared head leaf object",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        {
+         "x": 0
+        },
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        {
+         "x": 0
+        },
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"head\":[[0.1,0.2],[{\"x\":0},0.3]]}}",
+   "spec": {
+    "action": {
+     "head": {
+      "shape": [
+       2,
+       2
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {
+    "direct": "non_finite",
+    "proxy": "non_finite",
+    "raw": "non_finite"
+   },
+   "name": "q_r_chunk leaf null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        {
+         "$float": "nan"
+        },
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        {
+         "$float": "nan"
+        },
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2],[null,0.3]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "per_key part leaf null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         null,
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         null,
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[0.1,0.2],[null,0.3]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "declared head leaf null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        null,
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        null,
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"head\":[[0.1,0.2],[null,0.3]]}}",
+   "spec": {
+    "action": {
+     "head": {
+      "shape": [
+       2,
+       2
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk leaf list",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2],[[0],0.3]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "per_key part leaf list",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         [
+          0
+         ],
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         0.1,
+         0.2
+        ],
+        [
+         [
+          0
+         ],
+         0.3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[0.1,0.2],[[0],0.3]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "declared head leaf list",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "head": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        [
+         0
+        ],
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"head\":[[0.1,0.2],[[0],0.3]]}}",
+   "spec": {
+    "action": {
+     "head": {
+      "shape": [
+       2,
+       2
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk null head",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": null
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": null
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":null}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "q_l_chunk null head",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_l_chunk": null
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_l_chunk": null
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_l_chunk\":null}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key null part",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": null,
+       "action.right_grip": [
+        [
+         0.5
+        ],
+        [
+         0.5
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": null,
+       "action.right_grip": [
+        [
+         0.5
+        ],
+        [
+         0.5
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":null,\"action.right_grip\":[[0.5],[0.5]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "declared head null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "head": null
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"head\":null}}",
+   "spec": {
+    "action": {
+     "head": {
+      "shape": [
+       2,
+       2
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk ragged row and number",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[1,2],3]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "per_key ragged row and number",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1,
+         2
+        ],
+        3
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1,
+         2
+        ],
+        3
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[1,2],3]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk ragged short row",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[1],[2,3]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "per_key ragged short row",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1
+        ],
+        [
+         2,
+         3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1
+        ],
+        [
+         2,
+         3
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[1],[2,3]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk ragged deep ragged",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[[1]],[[2,3]]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "per_key ragged deep ragged",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         [
+          1
+         ]
+        ],
+        [
+         [
+          2,
+          3
+         ]
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         [
+          1
+         ]
+        ],
+        [
+         [
+          2,
+          3
+         ]
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[[1]],[[2,3]]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk bare number",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": 5
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": 5
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":5}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk bare flat",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       1,
+       2,
+       3
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       1,
+       2,
+       3
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[1,2,3]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk bare three deep",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        [
+         1,
+         2
+        ]
+       ],
+       [
+        [
+         3,
+         4
+        ]
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        [
+         1,
+         2
+        ]
+       ],
+       [
+        [
+         3,
+         4
+        ]
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[[1,2]],[[3,4]]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk bare empty",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": []
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": []
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "python_error",
+    "proxy": "python_error",
+    "raw": "raw_unfiltered"
+   },
+   "name": "q_r_chunk bare empty row",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "ValueError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "ValueError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk bare one row",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        1.0,
+        2.0,
+        3.0
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        1.0,
+        2.0,
+        3.0
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[1,2,3]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "label at top level",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "head_label": "right",
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "head_label": "right",
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"head_label\":\"right\"}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "label declared",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "head_label": "right",
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "head_label": "right",
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"head_label\":\"right\"}}",
+   "spec": {
+    "action": {
+     "head_label": {},
+     "q_r_chunk": {
+      "shape": [
+       4,
+       3
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "label inside per_key",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1,
+         2
+        ]
+       ],
+       "count": 3,
+       "label": "right",
+       "none": null
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1,
+         2
+        ]
+       ],
+       "count": 3,
+       "label": "right",
+       "none": null
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[1,2]],\"label\":\"right\",\"count\":3,\"none\":null}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key declared dict",
+   "observation": {
+    "prompt": "x",
+    "state.right_arm": [
+     0.0,
+     0.0
+    ],
+    "video.front": [
+     "Zg=="
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         2
+        ]
+       ],
+       "action.right_grip": [
+        [
+         0.5
+        ],
+        [
+         0.5
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         2
+        ]
+       ],
+       "action.right_grip": [
+        [
+         0.5
+        ],
+        [
+         0.5
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[1,2],[1,2]],\"action.right_grip\":[[0.5],[0.5]]}}}",
+   "spec": {
+    "action": {
+     "right_arm": [
+      0,
+      2
+     ],
+     "right_grip": [
+      2,
+      3
+     ]
+    },
+    "state": {
+     "right_arm": [
+      0,
+      2
+     ]
+    },
+    "video": {
+     "front": "observation.images.front"
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "per_key declared wrong width",
+   "observation": {
+    "prompt": "x",
+    "state.right_arm": [
+     0.0,
+     0.0
+    ],
+    "video.front": [
+     "Zg=="
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1,
+         2,
+         3
+        ],
+        [
+         1,
+         2,
+         3
+        ]
+       ],
+       "action.right_grip": [
+        [
+         0.5
+        ],
+        [
+         0.5
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[1,2,3],[1,2,3]],\"action.right_grip\":[[0.5],[0.5]]}}}",
+   "spec": {
+    "action": {
+     "right_arm": [
+      0,
+      2
+     ],
+     "right_grip": [
+      2,
+      3
+     ]
+    },
+    "state": {
+     "right_arm": [
+      0,
+      2
+     ]
+    },
+    "video": {
+     "front": "observation.images.front"
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "per_key declared missing part",
+   "observation": {
+    "prompt": "x",
+    "state.right_arm": [
+     0.0,
+     0.0
+    ],
+    "video.front": [
+     "Zg=="
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1,
+         2
+        ],
+        [
+         1,
+         2
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[1,2],[1,2]]}}}",
+   "spec": {
+    "action": {
+     "right_arm": [
+      0,
+      2
+     ],
+     "right_grip": [
+      2,
+      3
+     ]
+    },
+    "state": {
+     "right_arm": [
+      0,
+      2
+     ]
+    },
+    "video": {
+     "front": "observation.images.front"
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "per_key declared null part",
+   "observation": {
+    "prompt": "x",
+    "state.right_arm": [
+     0.0,
+     0.0
+    ],
+    "video.front": [
+     "Zg=="
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": null,
+       "action.right_grip": [
+        [
+         0.5
+        ],
+        [
+         0.5
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":null,\"action.right_grip\":[[0.5],[0.5]]}}}",
+   "spec": {
+    "action": {
+     "right_arm": [
+      0,
+      2
+     ],
+     "right_grip": [
+      2,
+      3
+     ]
+    },
+    "state": {
+     "right_arm": [
+      0,
+      2
+     ]
+    },
+    "video": {
+     "front": "observation.images.front"
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "extension string",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": "hello",
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": "hello",
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"extra\":\"hello\"}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension number",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": 3.5,
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": 3.5,
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"extra\":3.5}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension true",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": true,
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": true,
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"extra\":true}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": null,
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": null,
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"extra\":null}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension list with null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": [
+       1,
+       null,
+       "a"
+      ],
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": [
+       1,
+       null,
+       "a"
+      ],
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"extra\":[1,null,\"a\"]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension object",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": {
+       "a": {
+        "b": [
+         1,
+         2
+        ]
+       }
+      },
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": {
+       "a": {
+        "b": [
+         1,
+         2
+        ]
+       }
+      },
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"extra\":{\"a\":{\"b\":[1,2]}}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension empty object",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": {},
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": {},
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"extra\":{}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "non_finite",
+    "proxy": "non_finite",
+    "raw": "non_finite"
+   },
+   "name": "extension 1e400",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": [
+       {
+        "$float": "inf"
+       }
+      ],
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": [
+       {
+        "$float": "inf"
+       }
+      ],
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"extra\":[1e400]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "non_finite",
+    "proxy": "non_finite",
+    "raw": "non_finite"
+   },
+   "name": "extension -1e400",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": {
+       "$float": "-inf"
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": {
+       "$float": "-inf"
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":-1e400}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension -0",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": 0
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": 0
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":-0}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension -0.0",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": [
+       {
+        "$float": "-0"
+       },
+       0.0
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": [
+       {
+        "$float": "-0"
+       },
+       0.0
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":[-0.0,0.0]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension integer 2^53",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": 9007199254740992
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": 9007199254740992
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":9007199254740992}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key integer 2^53",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         9007199254740992
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         9007199254740992
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[9007199254740992]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "inexact_integer",
+    "proxy": "inexact_integer",
+    "raw": "inexact_integer"
+   },
+   "name": "extension integer 2^53+1",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": {
+       "$int": "9007199254740993"
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": {
+       "$int": "9007199254740993"
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":9007199254740993}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "inexact_integer",
+    "proxy": "inexact_integer",
+    "raw": "inexact_integer"
+   },
+   "name": "per_key integer 2^53+1",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         {
+          "$int": "9007199254740993"
+         }
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         {
+          "$int": "9007199254740993"
+         }
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[9007199254740993]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension integer 2^53+2",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": 9007199254740994
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": 9007199254740994
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":9007199254740994}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key integer 2^53+2",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         9007199254740994
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         9007199254740994
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[9007199254740994]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension integer 1e18",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": 1000000000000000000
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": 1000000000000000000
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":1000000000000000000}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key integer 1e18",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1000000000000000000
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1000000000000000000
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[1000000000000000000]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "extension integer 1e18+128",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": 1000000000000000128
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": 1000000000000000128
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":1000000000000000128}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key integer 1e18+128",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1000000000000000128
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         1000000000000000128
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[1000000000000000128]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "inexact_integer",
+    "proxy": "inexact_integer",
+    "raw": "inexact_integer"
+   },
+   "name": "extension integer 1e18+1",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": {
+       "$int": "1000000000000000001"
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": {
+       "$int": "1000000000000000001"
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":1000000000000000001}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "inexact_integer",
+    "proxy": "inexact_integer",
+    "raw": "inexact_integer"
+   },
+   "name": "per_key integer 1e18+1",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         {
+          "$int": "1000000000000000001"
+         }
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         {
+          "$int": "1000000000000000001"
+         }
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[1000000000000000001]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "inexact_integer",
+    "proxy": "inexact_integer",
+    "raw": "inexact_integer"
+   },
+   "name": "extension integer -2^53-1",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": {
+       "$int": "-9007199254740993"
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": {
+       "$int": "-9007199254740993"
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":-9007199254740993}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "inexact_integer",
+    "proxy": "inexact_integer",
+    "raw": "inexact_integer"
+   },
+   "name": "per_key integer -2^53-1",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         {
+          "$int": "-9007199254740993"
+         }
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         {
+          "$int": "-9007199254740993"
+         }
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[-9007199254740993]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "non_finite",
+    "proxy": "non_finite",
+    "raw": "non_finite"
+   },
+   "name": "q_r_chunk 1e400",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        {
+         "$float": "inf"
+        }
+       ],
+       [
+        0.2,
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        {
+         "$float": "inf"
+        }
+       ],
+       [
+        0.2,
+        0.3
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,1e400],[0.2,0.3]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "non_finite",
+    "proxy": "non_finite",
+    "raw": "non_finite"
+   },
+   "name": "per_key 1e400",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         {
+          "$float": "inf"
+         }
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.right_arm": [
+        [
+         {
+          "$float": "inf"
+         }
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.right_arm\":[[1e400]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk -0",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.0,
+        0.5
+       ],
+       [
+        0.5,
+        {
+         "$float": "-0"
+        }
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.0,
+        0.5
+       ],
+       [
+        0.5,
+        {
+         "$float": "-0"
+        }
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[-0,0.5],[0.5,-0.0]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "session id 1",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 1
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 1
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0001\",\"reason\":\"new\"},\"session_id\":\"s\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "session id 257",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 257
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 257
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0001\",\"reason\":\"new\"},\"session_id\":\"sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "session id 4096",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 4096
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 4096
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0001\",\"reason\":\"new\"},\"session_id\":\"ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "proxy": "proxy_limit"
+   },
+   "name": "session id 4097",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 4097
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 4097
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0001\",\"reason\":\"new\"},\"session_id\":\"sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "refusal actions null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "code": "DA-2000",
+     "error": "DreamServerError",
+     "reason": "pool_full",
+     "retry_after_s": 5.0,
+     "retryable": true,
+     "session_id_length": null
+    },
+    "strict": {
+     "code": "DA-2000",
+     "error": "DreamServerError",
+     "reason": "pool_full",
+     "retry_after_s": 5.0,
+     "retryable": true,
+     "session_id_length": null
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-2000\",\"reason\":\"pool_full\",\"retryable\":true,\"retry_after_s\":5},\"actions\":null}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "refusal junk actions",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "code": "DA-2000",
+     "error": "DreamServerError",
+     "reason": "pool_warming",
+     "retry_after_s": 2.0,
+     "retryable": true,
+     "session_id_length": null
+    },
+    "strict": {
+     "code": "DA-2000",
+     "error": "DreamServerError",
+     "reason": "pool_warming",
+     "retry_after_s": 2.0,
+     "retryable": true,
+     "session_id_length": null
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-2000\",\"reason\":\"pool_warming\",\"retryable\":true,\"retry_after_s\":2},\"actions\":\"junk\"}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "refusal overflowing actions",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "code": "DA-2000",
+     "error": "DreamServerError",
+     "reason": "pool_full",
+     "retry_after_s": 5.0,
+     "retryable": true,
+     "session_id_length": null
+    },
+    "strict": {
+     "code": "DA-2000",
+     "error": "DreamServerError",
+     "reason": "pool_full",
+     "retry_after_s": 5.0,
+     "retryable": true,
+     "session_id_length": null
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-2000\",\"reason\":\"pool_full\",\"retryable\":true,\"retry_after_s\":5},\"actions\":{\"q_r_chunk\":[[1e400]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "refusal bad request",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "code": "DA-4000",
+     "error": "DreamBadRequest",
+     "reason": "malformed",
+     "retry_after_s": null,
+     "retryable": false,
+     "session_id_length": null
+    },
+    "strict": {
+     "code": "DA-4000",
+     "error": "DreamBadRequest",
+     "reason": "malformed",
+     "retry_after_s": null,
+     "retryable": false,
+     "session_id_length": null
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-4000\",\"reason\":\"malformed\",\"detail\":\"x\"}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "refusal server fault",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "code": "DA-5000",
+     "error": "DreamServerError",
+     "reason": "error",
+     "retry_after_s": null,
+     "retryable": true,
+     "session_id_length": null
+    },
+    "strict": {
+     "code": "DA-5000",
+     "error": "DreamServerError",
+     "reason": "error",
+     "retry_after_s": null,
+     "retryable": true,
+     "session_id_length": null
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-5000\",\"reason\":\"error\",\"retryable\":true}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "refusal auth",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "code": "DA-1000",
+     "error": "DreamAuthError",
+     "reason": "unknown_key",
+     "retry_after_s": null,
+     "retryable": false,
+     "session_id_length": null
+    },
+    "strict": {
+     "code": "DA-1000",
+     "error": "DreamAuthError",
+     "reason": "unknown_key",
+     "retry_after_s": null,
+     "retryable": false,
+     "session_id_length": null
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-1000\",\"reason\":\"unknown_key\"}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "refusal expired",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {},
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {},
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0001\",\"reason\":\"expired\"},\"session_id\":\"s2\",\"actions\":{}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "timing missing",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "timing null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]},\"timing\":null}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "timing junk",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]},\"timing\":\"slow\"}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "timing unfamiliar",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]},\"timing\":{\"gateway_ms\":4,\"units\":\"ms\"}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "timing strings",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]},\"timing\":{\"gateway_ms\":\"4\"}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "actions null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":null}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "actions missing",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\"}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "actions string",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":\"text\"}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "actions list",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":[1,2]}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "actions empty",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {},
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {},
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key string",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": "x"
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": "x"
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":\"x\"}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": null
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": null
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":null}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key list",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": [
+       1,
+       2
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": [
+       1,
+       2
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":[1,2]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key number",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": 4
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": 4
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":4}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "action key __proto__",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "__proto__": {
+       "polluted": true
+      },
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "__proto__": {
+       "polluted": true
+      },
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]],\"__proto__\":{\"polluted\":true}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "per_key part __proto__",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "__proto__": [
+        [
+         1,
+         2
+        ]
+       ],
+       "action.right_arm": [
+        [
+         1,
+         2
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "__proto__": [
+        [
+         1,
+         2
+        ]
+       ],
+       "action.right_arm": [
+        [
+         1,
+         2
+        ]
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"__proto__\":[[1,2]],\"action.right_arm\":[[1,2]]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "no status",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamProtocolError",
+     "session_id_length": null
+    },
+    "strict": {
+     "error": "DreamProtocolError",
+     "session_id_length": null
+    }
+   },
+   "reply": "{\"session_id\":\"s1\",\"actions\":{}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "attack q_r_chunk ragged three deep",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[[1],[2,3]]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "attack q_r_chunk underflow 1e-400",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.0,
+        0.5
+       ],
+       [
+        0.5,
+        0.5
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.0,
+        0.5
+       ],
+       [
+        0.5,
+        0.5
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[1e-400,0.5],[0.5,0.5]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "attack per_key part of objects",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.a": [
+        {
+         "x": 1
+        }
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.a": [
+        {
+         "x": 1
+        }
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.a\":[{\"x\":1}]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "attack duplicate head, last a string",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[1,2]],\"q_r_chunk\":\"x\"}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "not_a_number",
+    "proxy": "not_a_number",
+    "raw": "not_a_number"
+   },
+   "name": "attack q_r_chunk true",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": true
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": true
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":true}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "not_a_number",
+    "proxy": "not_a_number",
+    "raw": "not_a_number"
+   },
+   "name": "attack q_r_chunk numeric string",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": "0.5"
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": "0.5"
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":\"0.5\"}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "attack q_r_chunk object",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    },
+    "strict": {
+     "error": "DreamActionError",
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":{}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "attack empty session id",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": null
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": null
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0001\",\"reason\":\"new\"},\"session_id\":\"\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "attack numeric status code",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "error": "DreamProtocolError",
+     "session_id_length": null
+    },
+    "strict": {
+     "error": "DreamProtocolError",
+     "session_id_length": null
+    }
+   },
+   "reply": "{\"status\":{\"code\":0},\"session_id\":\"s1\",\"actions\":{}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "checked_heads",
+    "proxy": "checked_heads",
+    "raw": "checked_heads"
+   },
+   "name": "attack per_key flat part with null",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "per_key": {
+       "action.a": [
+        1,
+        null
+       ]
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "per_key": {
+       "action.a": [
+        1,
+        null
+       ]
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"per_key\":{\"action.a\":[1,null]}}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "attack escaped head key",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"\\u0071_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {},
+   "name": "attack extension -0e5",
+   "observation": {
+    "prompt": "x"
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "extra": {
+       "$float": "-0"
+      }
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "extra": {
+       "$float": "-0"
+      }
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"extra\":-0e5}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "short_rows",
+    "proxy": "short_rows",
+    "raw": "short_rows"
+   },
+   "name": "q_r_chunk rows narrower than the measured arm",
+   "observation": {
+    "prompt": "x",
+    "state.arm_r.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2],[0.1,0.2]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "short_rows",
+    "proxy": "short_rows",
+    "raw": "short_rows"
+   },
+   "name": "q_r_chunk rows narrower than the declared arm",
+   "observation": {
+    "prompt": "x",
+    "state.arm_r.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2],[0.1,0.2]]}}",
+   "spec": {
+    "state": {
+     "arm_r.joint_pos": {
+      "shape": [
+       6
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk rows of the arm's joints and grip",
+   "observation": {
+    "prompt": "x",
+    "state.arm_r.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ],
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ],
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3,0.4,0.5,0.6,0.7],[0.1,0.2,0.3,0.4,0.5,0.6,0.7]]}}",
+   "spec": {
+    "state": {
+     "arm_r.joint_pos": {
+      "shape": [
+       6
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {
+    "direct": "short_rows",
+    "proxy": "short_rows",
+    "raw": "short_rows"
+   },
+   "name": "q_l_chunk rows narrower than the measured arm",
+   "observation": {
+    "prompt": "x",
+    "state.arm_l.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_l_chunk\":[[0.1,0.2],[0.1,0.2]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "short_rows",
+    "proxy": "short_rows",
+    "raw": "short_rows"
+   },
+   "name": "q_l_chunk rows narrower than the declared arm",
+   "observation": {
+    "prompt": "x",
+    "state.arm_l.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_l_chunk\":[[0.1,0.2],[0.1,0.2]]}}",
+   "spec": {
+    "state": {
+     "arm_l.joint_pos": {
+      "shape": [
+       6
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "q_l_chunk rows of the arm's joints and grip",
+   "observation": {
+    "prompt": "x",
+    "state.arm_l.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ],
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ],
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_l_chunk\":[[0.1,0.2,0.3,0.4,0.5,0.6,0.7],[0.1,0.2,0.3,0.4,0.5,0.6,0.7]]}}",
+   "spec": {
+    "state": {
+     "arm_l.joint_pos": {
+      "shape": [
+       6
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "observation object declared scalar",
+   "observation": {
+    "prompt": "x",
+    "state.meta": {
+     "a": 1
+    }
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3
+       ],
+       [
+        0.11,
+        0.21,
+        0.31
+       ],
+       [
+        0.12,
+        0.22,
+        0.32
+       ],
+       [
+        0.13,
+        0.23,
+        0.33
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3],[0.11,0.21,0.31],[0.12,0.22,0.32],[0.13,0.23,0.33]]}}",
+   "spec": {
+    "state": {
+     "meta": {
+      "shape": []
+     }
+    }
+   }
+  }
+ ],
+ "deliberate": {
+  "checked_heads": "per_key's array parts and the embodiment's declared heads are checked as joint values whatever strict says: Python checks them only in strict mode",
+  "inexact_integer": "an integer a double cannot hold is refused before delivery: Python keeps it exact as an int, JavaScript cannot",
+  "non_finite": "a joint target or any number of an action is never NaN or an infinity: Python returns them (JSON's 1e400, a null sample filtered into NaN)",
+  "not_a_number": "a string, boolean or object where a joint value belongs is refused: numpy converts '0.5' and true, and Python returns other leaves of heads it does not filter",
+  "proxy_limit": "the proxy withholds a session id longer than 4096 characters rather than pass an unbounded value",
+  "python_error": "Python fails with numpy's ValueError (not a DreamError); this client refuses the reply as a DreamActionError",
+  "raw_unfiltered": "processing 'raw' (TypeScript only) runs no filter: a chunk Python's filter fails on is returned as it came",
+  "short_rows": "an arm's chunk whose rows are narrower than its measured joints and grip is refused: Python joins the joints it has and returns the short rows"
+ },
+ "ts_outcome": {
+  "checked_heads": "DreamActionError",
+  "inexact_integer": "DreamActionError",
+  "non_finite": "DreamActionError",
+  "not_a_number": "DreamActionError",
+  "proxy_limit": "DreamProtocolError",
+  "python_error": "DreamActionError",
+  "raw_unfiltered": "ok",
+  "short_rows": "DreamActionError"
+ }
+}

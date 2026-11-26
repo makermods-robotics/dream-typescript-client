@@ -7,8 +7,9 @@ sha256), the installed versions, the thread and platform settings in force, and 
 Provenance is per file because `--only X` rewrites one file: a section-wide environment would describe the files the
 run kept with the run's own. Only what is truly per section (gen_fixtures's base_seed) sits beside `files`.
 
-An entry may also hold `checks`, results measured on that file's bytes (#check): kept over a rerun that writes the same
-bytes, dropped when the bytes change. Keys sorted and no timestamps: a rerun writes the same bytes.
+An entry may also hold `checks`, results measured on that file's bytes (#check), each with the upstream packages and
+versions it was measured with: kept over a rerun that writes the same bytes in the same environment, dropped when the
+bytes or that environment change. Keys sorted and no timestamps: a rerun writes the same bytes.
 """
 
 import functools
@@ -86,6 +87,11 @@ def environment() -> dict:
     }
 
 
+def _measured_with(env: dict) -> dict:
+    """What a check's result depends on besides the bytes: the upstream packages and the installed versions."""
+    return {"upstream": env["upstream"], "versions": env["versions"]}
+
+
 def _read() -> dict:
     return json.loads(PATH.read_text()) if PATH.exists() else {}
 
@@ -104,8 +110,11 @@ def update(section: str, files: dict, **fields) -> None:
     merged = dict(old)
     for name, entry in files.items():
         checks = old.get(name, {}).get("checks")
-        if checks and old[name].get("sha256") == entry["sha256"]:  # measured on these very bytes
-            entry = {**entry, "checks": checks}
+        if checks and old[name].get("sha256") == entry["sha256"]:  # measured on these very bytes...
+            # ...and in this environment: a check from another upstream or numpy/jax is measured again.
+            kept = {key: c for key, c in checks.items() if c.get("environment") == _measured_with(entry["environment"])}
+            if kept:
+                entry = {**entry, "checks": kept}
         merged[name] = entry
     manifest[section] = {**fields, "files": merged}
     _write(manifest)
@@ -116,5 +125,5 @@ def check(section: str, name: str, key: str, result: dict) -> None:
     manifest = _read()
     entry = manifest[section]["files"][name]
     assert entry["sha256"] == sha256(ROOT / name), f"{name} changed since the manifest was written: regenerate it first"
-    entry.setdefault("checks", {})[key] = result
+    entry.setdefault("checks", {})[key] = {**result, "environment": _measured_with(environment())}
     _write(manifest)

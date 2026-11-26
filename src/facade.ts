@@ -5,9 +5,10 @@
  * hands the client every camera tick (one frame per camera and the latest state), and getAction() sends the frames
  * the window kept with the newest state and returns the next chunk of actions.
  *
- * Where the services are is the constructor's `baseUrl` (the gateway, `DREAM_GATEWAY_URL`) and `platformUrl` (the
- * platform, `DREAM_API_URL`), production by default. In a browser, point both at your own server and leave `apiKey`
- * out: your server adds the key, which never reaches the page.
+ * Where the services are is the constructor's `baseUrl` (the gateway, `DREAM_GATEWAY_URL`), `platformUrl` (the
+ * platform, `DREAM_API_URL`) and `dataUrl` (the data service, `DREAM_DATA_URL`), production by default. In a browser,
+ * point all three at your own server with `proxyUrl` and leave `apiKey` out: your server adds the key, which never
+ * reaches the page (`@makermods/dreamlabs/proxy`).
  */
 
 import {
@@ -32,10 +33,11 @@ import {
   type Robot,
   type Timing,
 } from "./client.js";
-import { checkServiceUrl, DEFAULT_GATEWAY_URL, DEFAULT_PLATFORM_URL } from "./credentials.js";
+import { authorization, checkServiceUrl, safeMessage, DEFAULT_DATA_URL, DEFAULT_GATEWAY_URL, DEFAULT_PLATFORM_URL, requireHttps } from "./credentials.js";
 import { parseEmbodiment, type EmbodimentConfig, type ShapeSpec } from "./embodiment.js";
-import { DreamCancelled, DreamConfigError, DreamError, DreamProtocolError, detail, type DreamSlowNetworkWarning } from "./errors.js";
-import { listModels, type CheckpointId, type Model } from "./models.js";
+import { DreamCallbackWarning, DreamCancelled, DreamConfigError, DreamError, DreamProtocolError, DreamTrainingWarning, detail, type DreamWarning } from "./errors.js";
+import { listModels, scrub, type CheckpointId, type Model, type ServiceOptions } from "./models.js";
+import { FINE_TUNE_PREFIX, fetchTrainedInputs, trainedNotes, type TrainedInputs } from "./trained-inputs.js";
 import type { Kinematics } from "./seam-join.js";
 import { ARM_POSE_KEYS } from "./smoothing.js";
 import { cancelled, checkClientVersion, type FetchLike } from "./transport.js";
@@ -54,12 +56,26 @@ export interface DreamClientOptions {
   baseUrl?: string;
   /** The platform (`DREAM_API_URL`), or your proxy for it; getModels() calls `${platformUrl}/v1/models`. */
   platformUrl?: string;
+  /**
+   * The data service (`DREAM_DATA_URL`), or your proxy for it: policy() reads what one of your fine-tunes was trained
+   * on from `${dataUrl}/v1/fine_tuning/models/<id>/training_data`.
+   */
+  dataUrl?: string;
+  /**
+   * Your proxy for all three services (`@makermods/dreamlabs/proxy`'s createDreamProxy(), mounted at this URL), e.g.
+   * `/api/dream`: the default of `baseUrl`, `platformUrl` and `dataUrl`, and turns `proxyHeaders` on. The proxy adds
+   * the key, so `apiKey` is refused with it.
+   */
+  proxyUrl?: string;
   /** The `fetch` to call; the global one by default. */
   fetch?: FetchLike;
   /** Extra headers on every request (your proxy's own auth, say). */
   headers?: Record<string, string>;
-  /** Receives a {@link DreamSlowNetworkWarning} when the round trips stay slow; `console.warn` by default. */
-  onWarning?: (warning: DreamSlowNetworkWarning) => void;
+  /**
+   * Receives a {@link DreamSlowNetworkWarning} when the round trips stay slow, and a {@link DreamTrainingWarning} for
+   * each way a fine-tune's frames or prompt differ from what it was trained on; `console.warn` by default.
+   */
+  onWarning?: (warning: DreamWarning) => void;
   /** Receives the {@link Diagnostics} of every successful getAction() (the raw reply, the IK, the timings). */
   onDiagnostics?: (diagnostics: Diagnostics) => void;
   /**
@@ -71,11 +87,18 @@ export interface DreamClientOptions {
   /**
    * `baseUrl` is your proxy, which builds the gateway's `User-Agent` (`dream-client/<version> <instance>`) from what
    * the client sends: `Dream-Client-Version`, and `Dream-Client-Instance`, 8 random hex digits per policy. Turn it on
-   * behind a proxy that forwards both, as the MakerMods console's do; a browser cannot set `User-Agent` itself.
+   * behind a proxy that forwards both, as the MakerMods console's do; a browser cannot set `User-Agent` itself. Always
+   * on with `proxyUrl`; set it when you point `baseUrl`, `platformUrl` or `dataUrl` at a createDreamProxy() one by one,
+   * which refuses a GET without `Dream-Client-Version`.
    */
   proxyHeaders?: boolean;
   /** The clock, milliseconds on a monotonic scale; `performance.now` by default (tests replace it). */
   now?: () => number;
+  /**
+   * Let `apiKey` go to a plain `http://` service on another computer, on a network you trust. Off by default: with a
+   * key, every absolute service URL must be `https://` or this computer's (`localhost`, 127.0.0.0/8, `[::1]`).
+   */
+  allowInsecureHttp?: boolean;
 }
 
 /** The config of {@link DreamClient.policy}; Python's snake_case keys in camelCase. */
@@ -124,10 +147,35 @@ const CONFIG_KEYS = new Set([
   "ikLeadMs",
 ]);
 
+/**
+ * One getAction(): what the model was sent and what came back (`dream.RoundTrip`); {@link DreamClient.onRoundTrip}
+ * hands it over. Frozen.
+ */
+export interface RoundTrip {
+  /** When the request went out, seconds since the epoch (`Date.now() / 1000`). */
+  readonly sentS: number;
+  /** Per frame key (`video.<role>`), the base64 JPEGs sent, oldest first: the frames the model saw. */
+  readonly frames: Readonly<Record<string, readonly string[]>>;
+  /** Every other key sent: the state and the prompt, as setObservation() was given them. */
+  readonly observation: Readonly<Record<string, unknown>>;
+  /** What getAction() returned; null when it threw. */
+  readonly action: ActionDict | null;
+  /** {@link DreamClient.lastTiming} after the call; null when nothing has reached the network yet. */
+  readonly timing: Timing | null;
+  /** What getAction() threw, a {@link DreamError}; null when it returned. */
+  readonly error: DreamError | null;
+  /**
+   * Where the episode's frames or prompt differ from what the fine-tune was trained on, one line each; empty when they
+   * match, and for a model that is not one of your fine-tunes.
+   */
+  readonly trained: readonly string[];
+}
+
 /** One client for models and inference, with the key bound once (`dream.DreamClient`). */
 export class DreamClient {
   readonly baseUrl: string;
   readonly platformUrl: string;
+  readonly dataUrl: string;
   // `#` fields: unlike TypeScript's `private`, they never show in console.log(client) or JSON.stringify(client).
   readonly #apiKey: string | null;
   readonly #options: Omit<DreamClientOptions, "apiKey">;
@@ -143,6 +191,17 @@ export class DreamClient {
   #pending: AbortController | null = null;
   #closing: Promise<void> | null = null;
   #releasing = new Set<Promise<void>>();
+  readonly #proxyHeaders: boolean;
+  /** One entry per registration (a function added twice is two), removed by identity. */
+  readonly #roundTripFns: { fn: (trip: RoundTrip) => unknown }[] = [];
+  /** Per fine-tune, what it was trained on (null: not one of yours), read once per checkpoint. */
+  readonly #trainedFor = new Map<string, TrainedInputs | null>();
+  /** The open policy's fine-tune and what it was trained on; null for any other model. */
+  #trained: { checkpoint: string; inputs: TrainedInputs } | null = null;
+  /** The episode's lines, from its first getAction(); null until then. */
+  #trainedNotes: string[] | null = null;
+  /** The lines the open policy has warned about, each once. */
+  #trainedWarned = new Set<string>();
 
   /** Names the class only; never the key. */
   toString(): string {
@@ -154,8 +213,20 @@ export class DreamClient {
     const { apiKey, ...rest } = options;
     this.#options = rest;
     this.#apiKey = apiKey ?? null;
-    this.baseUrl = checkServiceUrl(options.baseUrl ?? DEFAULT_GATEWAY_URL, "baseUrl", true);
-    this.platformUrl = checkServiceUrl(options.platformUrl ?? DEFAULT_PLATFORM_URL, "platformUrl", true);
+    const proxy = options.proxyUrl !== undefined ? checkServiceUrl(options.proxyUrl, "proxyUrl", true) : null;
+    if (proxy !== null && this.#apiKey) throw new DreamConfigError("proxyUrl is your proxy, which adds the API key: leave apiKey out", detail("unsupported", "apiKey"));
+    // A proxy requires the client's marker (Dream-Client-Version) on every request: with proxyUrl it is always sent.
+    if (proxy !== null && options.proxyHeaders === false) {
+      throw new DreamConfigError("proxyUrl sends the proxy headers the proxy requires: leave proxyHeaders out (or true)", detail("unsupported", "proxyHeaders"));
+    }
+    if (this.#apiKey) authorization(this.#apiKey);
+    this.baseUrl = checkServiceUrl(options.baseUrl ?? proxy ?? DEFAULT_GATEWAY_URL, "baseUrl", true);
+    this.platformUrl = checkServiceUrl(options.platformUrl ?? proxy ?? DEFAULT_PLATFORM_URL, "platformUrl", true);
+    this.dataUrl = checkServiceUrl(options.dataUrl ?? proxy ?? DEFAULT_DATA_URL, "dataUrl", true);
+    if (this.#apiKey) {
+      for (const [what, url] of [["baseUrl", this.baseUrl], ["platformUrl", this.platformUrl], ["dataUrl", this.dataUrl]] as const) requireHttps(url, what, options.allowInsecureHttp);
+    }
+    this.#proxyHeaders = proxy !== null || (options.proxyHeaders ?? false);
     if (options.clientVersion !== undefined) checkClientVersion(options.clientVersion);
   }
 
@@ -165,7 +236,7 @@ export class DreamClient {
    * @param options.signal Cancels the call, its retries included ({@link DreamCancelled}).
    */
   async getModels(options: { signal?: AbortSignal } = {}): Promise<Model[]> {
-    return listModels({ url: this.platformUrl, apiKey: this.#apiKey, fetch: this.#options.fetch, headers: this.#options.headers, signal: options.signal });
+    return listModels(this.service(this.platformUrl, options.signal));
   }
 
   /**
@@ -238,6 +309,8 @@ export class DreamClient {
         current();
         if (loaded !== null) embodiment = loaded;
       }
+      const trained = await this.trainedInputsFor(checkpoint, signal);
+      current();
       const actionHz = config.actionHz ?? ACTION_HZ;
       let model: Model | undefined;
       if (ikModule && config.ik) {
@@ -275,7 +348,8 @@ export class DreamClient {
         fetch: this.#options.fetch,
         headers: this.#options.headers,
         clientVersion: this.#options.clientVersion,
-        proxyHeaders: this.#options.proxyHeaders,
+        proxyHeaders: this.#proxyHeaders,
+        allowInsecureHttp: this.#options.allowInsecureHttp,
         onWarning: this.#options.onWarning,
         onDiagnostics: this.#options.onDiagnostics,
         now: this.#options.now,
@@ -283,6 +357,9 @@ export class DreamClient {
       // Nothing awaits between the check above and here; the policy opens only as the current call.
       this.policyClient = next;
       this.window = new ObservationWindow(obsWindow, 1 / obsFps);
+      this.#trained = trained;
+      this.#trainedNotes = null;
+      this.#trainedWarned = new Set();
     } finally {
       if (this.#pending === controller) this.#pending = null;
     }
@@ -332,10 +409,61 @@ export class DreamClient {
     const policy = this.policyClient;
     const window = this.window;
     if (!policy || !window) throw noPolicy("getAction()");
-    const action = await policy.getAction(window.buildObservation(), options);
-    // The policy closes (and aborts the call) when replaced; this holds even for a fetch that ignores its signal.
+    const sent = window.buildObservation();
+    const frameKeys = window.frameKeys();
+    this.#trainedNotes ??= this.heldToTraining(sent, frameKeys);
+    const trained = this.#trainedNotes;
+    const sentS = Date.now() / 1000;
+    let action: ActionDict;
+    try {
+      action = await policy.getAction(sent, options);
+      // The policy closes (and aborts the call) when replaced; this holds even for a fetch that ignores its signal.
+      if (this.policyClient !== policy) throw new DreamCancelled("getAction() was cancelled: its policy was closed or replaced meanwhile");
+    } catch (error) {
+      if (error instanceof DreamError) this.handOver(roundTrip(sentS, sent, frameKeys, null, policy.lastTiming, error, trained));
+      throw error;
+    }
+    this.handOver(roundTrip(sentS, sent, frameKeys, action, policy.lastTiming, null, trained));
+    // A callback may have closed or replaced the policy, or fired the caller's signal: the action is no one's answer.
     if (this.policyClient !== policy) throw new DreamCancelled("getAction() was cancelled: its policy was closed or replaced meanwhile");
+    if (options.signal?.aborted) throw cancelled(options.signal, "getAction() was cancelled");
     return action;
+  }
+
+  /**
+   * Calls `fn` after every getAction() that built its observation from the window, with what the model was sent and
+   * what came back, a {@link RoundTrip}, whether the call returned or threw, a refusal before anything was sent
+   * included (`DreamClient.on_round_trip`): for a page of what the model sees, or your own logs.
+   * Each `fn` runs synchronously, in the order added, before getAction() returns; as in Python, what `fn` throws is
+   * thrown out of getAction() (after the call's own outcome is settled), so keep it from throwing. A promise `fn`
+   * returns is not waited for: its rejection is handed to `onWarning` as a {@link DreamCallbackWarning}.
+   *
+   * @returns Not in Python: a function that removes this registration of `fn` (another registration of the same
+   *   function stays); calling it again does nothing.
+   */
+  onRoundTrip(fn: (trip: RoundTrip) => unknown): () => void {
+    if (typeof fn !== "function") throw new DreamConfigError(`onRoundTrip() takes a function, got ${typeof fn}`);
+    const registration = { fn };
+    this.#roundTripFns.push(registration);
+    return () => {
+      const at = this.#roundTripFns.indexOf(registration);
+      if (at >= 0) this.#roundTripFns.splice(at, 1);
+    };
+  }
+
+  /**
+   * Waits until the IK policy() built (its `ik` key) is ready to run every solve (`DreamClient.wait_for_ik`). Python
+   * compiles its `traj` solve on a thread for up to 20 s, so a robot program waits before it powers arms that would
+   * starve meanwhile; this package has nothing to compile, so it is ready at once.
+   *
+   * @param timeoutS Seconds to wait at most.
+   * @returns True: ready (also without `ik`).
+   * @throws DreamConfigError No policy is open.
+   */
+  async waitForIk(timeoutS: number): Promise<boolean> {
+    void timeoutS;
+    if (!this.policyClient) throw noPolicy("waitForIk()");
+    return true;
   }
 
   /**
@@ -365,6 +493,7 @@ export class DreamClient {
     if (!policy || !window) throw noPolicy("resetEpisode()");
     await policy.resetEpisode();
     window.clear();
+    this.#trainedNotes = null;
   }
 
   /**
@@ -446,6 +575,87 @@ export class DreamClient {
     return (this.#options.now ?? (() => performance.now()))();
   }
 
+  /** A platform or data service call's options, with this client's key, fetch, headers and identity. */
+  private service(url: string, signal?: AbortSignal): ServiceOptions {
+    return {
+      url,
+      apiKey: this.#apiKey,
+      fetch: this.#options.fetch,
+      headers: this.#options.headers,
+      signal,
+      clientVersion: this.#options.clientVersion,
+      proxyHeaders: this.#proxyHeaders,
+      allowInsecureHttp: this.#options.allowInsecureHttp,
+    };
+  }
+
+  /** Hands `warning` to `onWarning` (console.warn by default); never throws. */
+  private warn(warning: DreamWarning): void {
+    try {
+      (this.#options.onWarning ?? ((w: DreamWarning) => console.warn(`${w.name}: ${w.message}`)))(warning);
+    } catch {
+      // A warning never throws out of a call.
+    }
+  }
+
+  private handOver(trip: RoundTrip): void {
+    for (const { fn } of [...this.#roundTripFns]) {
+      const result = fn(trip);
+      // Synchronous by contract; a promise it returns is not waited for, and its rejection is a warning, never an
+      // unhandled rejection.
+      if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
+        // The reporter never throws itself: any rejection value is formatted safely, and the chain ends here.
+        Promise.resolve(result).then(undefined, (error: unknown) => {
+          try {
+            this.warn(new DreamCallbackWarning(scrub(`an onRoundTrip() callback's promise was rejected: ${safeMessage(error)}`, this.#apiKey)));
+          } catch {
+            // nothing left to report to
+          }
+        });
+      }
+    }
+  }
+
+  /**
+   * What a fine-tune was trained on, read once per checkpoint (`facade._trained_inputs_for`); null for any other model,
+   * and when it could not be read, which is warned about and never refuses.
+   */
+  private async trainedInputsFor(checkpoint: string, signal: AbortSignal): Promise<{ checkpoint: string; inputs: TrainedInputs } | null> {
+    if (!checkpoint.startsWith(FINE_TUNE_PREFIX)) return null;
+    if (!this.#trainedFor.has(checkpoint)) {
+      try {
+        this.#trainedFor.set(checkpoint, await fetchTrainedInputs(checkpoint, this.service(this.dataUrl, signal)));
+      } catch (error) {
+        if (!(error instanceof DreamError) || error instanceof DreamCancelled) throw error;
+        const why = scrub(error.message, this.#apiKey);
+        this.warn(new DreamTrainingWarning(`could not read what ${checkpoint} was trained on, so this policy's cameras and prompt are not compared with it: ${why}`));
+        return null;
+      }
+    }
+    const inputs = this.#trainedFor.get(checkpoint)!;
+    return inputs === null ? null : { checkpoint, inputs };
+  }
+
+  /** The episode's lines against what the fine-tune was trained on, each warned once a policy (`_held_to_training`). */
+  private heldToTraining(sent: Readonly<Record<string, unknown>>, frameKeys: ReadonlySet<string>): string[] {
+    if (!this.#trained) return [];
+    const frames = Object.fromEntries([...frameKeys].map((key) => [key, sent[key] as string[]]));
+    let lines: string[];
+    try {
+      // The lines quote the training record: never with the key in them, in a warning or a round trip.
+      lines = trainedNotes(this.#trained.inputs, this.#trained.checkpoint, frames, sent.prompt).map((line) => scrub(line, this.#apiKey));
+    } catch {
+      // Only ever a warning: whatever the record holds, the call goes on.
+      return [];
+    }
+    for (const line of lines) {
+      if (this.#trainedWarned.has(line)) continue;
+      this.#trainedWarned.add(line);
+      this.warn(new DreamTrainingWarning(line));
+    }
+    return lines;
+  }
+
   /** The embodiment config a fine-tune was trained on, looked up once per checkpoint (`facade._embodiment_config_for`). */
   private async embodimentConfigFor(checkpoint: string, lookup: () => Promise<Model[]>, given: boolean): Promise<Record<string, unknown> | null> {
     if (!given && this.embodimentConfigs.has(checkpoint)) return this.embodimentConfigs.get(checkpoint)!;
@@ -511,6 +721,24 @@ function checkKinematics(kinematics: unknown): void {
       throw new DreamConfigError(`config key 'kinematics' entry '${key}' must have pose() and jacobian() methods`);
     }
   }
+}
+
+function roundTrip(
+  sentS: number,
+  sent: Record<string, unknown>,
+  frameKeys: ReadonlySet<string>,
+  action: ActionDict | null,
+  timing: Timing | null,
+  error: DreamError | null,
+  trained: readonly string[],
+): RoundTrip {
+  const frames: Record<string, string[]> = {};
+  const observation: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(sent)) {
+    if (frameKeys.has(key)) frames[key] = value as string[];
+    else observation[key] = value;
+  }
+  return Object.freeze({ sentS, frames, observation, action, timing, error, trained: [...trained] });
 }
 
 function noPolicy(call: string): DreamConfigError {

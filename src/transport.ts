@@ -7,7 +7,8 @@
  * to the next one.
  */
 
-import { authorization } from "./credentials.js";
+import { authorization, requestUrl, requireHttps, safeCause } from "./credentials.js";
+import { parseRaw, type RawJson } from "./json-raw.js";
 import { DreamCancelled, DreamConfigError, DreamError, DreamProtocolError, DreamTimeout, detail } from "./errors.js";
 import { CLIENT_VERSION } from "./version.js";
 
@@ -24,6 +25,8 @@ export const CLIENT_VERSION_HEADER = "Dream-Client-Version";
 export const CLIENT_INSTANCE_HEADER = "Dream-Client-Instance";
 /** The product every request's `User-Agent` names, `dream-client/<version> <8 hex>`, outside browsers. */
 export const USER_AGENT_PRODUCT = "dream-client";
+/** The largest reply read from the gateway or a service, bytes (a proxy's default answer limit): past it, refused. */
+export const MAX_REPLY_BYTES = 16 * 1024 * 1024;
 
 /** What one request cost on the wire, whether or not a reply came back (`transport.Exchange`). */
 export interface Exchange {
@@ -96,6 +99,8 @@ export interface TransportOptions {
   now?: () => number;
   /** `Dream-Client-Version`; {@link CLIENT_VERSION} by default. */
   clientVersion?: string;
+  /** Let `apiKey` go to a plain `http://` gateway on another computer: only literally `true`. */
+  allowInsecureHttp?: boolean;
   /**
    * `baseUrl` is your proxy, which builds the `User-Agent` upstream: send the instance as `Dream-Client-Instance`
    * instead of in a `User-Agent` (which a browser cannot set anyway).
@@ -103,9 +108,11 @@ export interface TransportOptions {
   proxyHeaders?: boolean;
 }
 
-/** True where `User-Agent` cannot be set on a request (a browser page or worker). */
-const IN_BROWSER = typeof (globalThis as { document?: unknown }).document !== "undefined" ||
-  typeof (globalThis as { WorkerGlobalScope?: unknown }).WorkerGlobalScope !== "undefined";
+/** True where `User-Agent` cannot be set on a request (a browser page or worker); read when a request is built. */
+export function inBrowser(): boolean {
+  return typeof (globalThis as { document?: unknown }).document !== "undefined" ||
+    typeof (globalThis as { WorkerGlobalScope?: unknown }).WorkerGlobalScope !== "undefined";
+}
 
 /** Request/reply channel to one DreamAPI gateway (`transport.Transport`). One request at a time; the client serialises. */
 export class Transport {
@@ -122,6 +129,8 @@ export class Transport {
   // A `#` field, so the key it carries never shows in console.log or JSON.stringify of the client.
   readonly #headers: Record<string, string>;
   readonly #secret: string | null;
+  readonly #auth: Record<string, string>;
+  readonly #allowInsecureHttp: unknown;
   private readonly now: () => number;
 
   constructor(options: TransportOptions) {
@@ -131,18 +140,22 @@ export class Transport {
     this.now = options.now ?? (() => performance.now());
     this.instance = Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => b.toString(16).padStart(2, "0")).join("");
     this.#secret = options.apiKey || null;
+    // Where the bearer header is attached: the destination it will really go to must be https (or this computer).
+    if (this.#secret) requireHttps(this.baseUrl, "baseUrl", options.allowInsecureHttp);
     const version = checkClientVersion(options.clientVersion ?? CLIENT_VERSION);
     this.#headers = {
       "Content-Type": "application/json",
       [CLIENT_VERSION_HEADER]: version,
-      ...(options.proxyHeaders ? { [CLIENT_INSTANCE_HEADER]: this.instance } : IN_BROWSER ? {} : { "User-Agent": `${USER_AGENT_PRODUCT}/${version} ${this.instance}` }),
-      ...(options.apiKey ? authorization(options.apiKey) : {}),
+      ...(options.proxyHeaders ? { [CLIENT_INSTANCE_HEADER]: this.instance } : inBrowser() ? {} : { "User-Agent": `${USER_AGENT_PRODUCT}/${version} ${this.instance}` }),
       ...options.headers,
     };
+    this.#auth = options.apiKey ? authorization(options.apiKey) : {};
+    this.#allowInsecureHttp = options.allowInsecureHttp;
   }
 
   /**
-   * Posts one JSON body and returns the decoded reply, whatever its shape; `lastExchange` is set on every path out.
+   * Posts one JSON body and returns the decoded reply, whatever its shape, each number keeping its source text
+   * ({@link parseRaw}); `lastExchange` is set on every path out.
    *
    * @param options.signal Cancels the request; composed with the timeout, and the error says which fired.
    * @throws DreamError The channel is closed.
@@ -151,7 +164,7 @@ export class Transport {
    * @throws DreamProtocolError The gateway cannot be reached, or answered something that is not JSON.
    * @throws TypeError The payload holds something {@link encode} refuses (nothing was sent).
    */
-  async request(payload: unknown, path: string = GET_ACTION_PATH, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<unknown> {
+  async request(payload: unknown, path: string = GET_ACTION_PATH, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<RawJson> {
     if (this.closed) throw new DreamError(`inference request on a closed channel to ${this.baseUrl}`);
     const { timeoutMs = this.timeoutMs, signal } = options;
     if (signal?.aborted) throw cancelled(signal, "the request was cancelled before it was sent");
@@ -172,39 +185,46 @@ export class Transport {
     this.active.add(end);
     const started = this.now();
     let raw = "";
+    let responseBytes = 0;
     let status = 0;
     try {
-      const reply = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      // The one URL the request goes to, checked where the key is attached, and given to fetch as it is.
+      const url = requestUrl(this.baseUrl, path, "baseUrl", this.#secret !== null, this.#allowInsecureHttp);
+      const reply = await this.fetchImpl(url, {
         method: "POST",
-        headers: this.#headers,
+        headers: { ...this.#headers, ...this.#auth },
         body,
         signal: abort.signal,
         // A redirect is not followed: the key never goes to another host.
         redirect: "manual",
       });
       status = reply.status;
-      raw = await reply.text();
+      // Counted as it streams and cancelled at the limit: a reply with no Content-Length is never buffered whole first.
+      const bytes = reply.body ? await readAll(reply.body, MAX_REPLY_BYTES, abort.signal, 0) : new Uint8Array(0);
+      responseBytes = bytes.length;
+      raw = new TextDecoder().decode(bytes);
     } catch (error) {
       if (ended) throw this.aborted(ended, error);
-      let why = error instanceof Error ? (error.cause instanceof Error ? error.cause.message : error.message) : String(error);
+      if (error instanceof BodyError) throw new DreamProtocolError(`inference reply from ${this.baseUrl} is larger than ${MAX_REPLY_BYTES} bytes; is the correct DreamAPI gateway running there?`);
       // A fetch that refuses a header names its value: never let the key into a message.
-      if (this.#secret) why = why.split(this.#secret).join("<api key>");
-      throw new DreamProtocolError(`could not reach Dream Labs at ${this.baseUrl}: ${why}; check this computer's internet connection, or the baseUrl`, { cause: this.scrubbed(error) });
+      // One safe copy of the error, its cause read once under a guard (a getter may throw), for the message and the cause.
+      const safe = this.scrubbed(error);
+      const why = safe.cause instanceof Error ? safe.cause.message : safe.message;
+      throw new DreamProtocolError(`could not reach Dream Labs at ${this.baseUrl}: ${why}; check this computer's internet connection, or the baseUrl`, { cause: safe });
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       this.active.delete(end);
-      this.lastExchange = { rttMs: this.now() - started, requestBytes, responseBytes: new TextEncoder().encode(raw).length };
+      this.lastExchange = { rttMs: this.now() - started, requestBytes, responseBytes };
     }
     // A reply read after the abort fired (a fetch that ignores its signal) is not the answer: the caller has moved on.
     if (ended) throw this.aborted(ended);
     try {
-      return JSON.parse(raw);
-    } catch (error) {
-      throw new DreamProtocolError(
-        `inference reply from ${this.baseUrl} is not JSON (HTTP ${status}); is the correct DreamAPI gateway running there?`,
-        { cause: error },
-      );
+      // Read keeping each number's text (an integer a double cannot hold is then seen before it is changed).
+      return parseRaw(raw);
+    } catch {
+      // No cause: the parser's message quotes the reply.
+      throw new DreamProtocolError(`inference reply from ${this.baseUrl} is not JSON (HTTP ${status}); is the correct DreamAPI gateway running there?`);
     }
   }
 
@@ -223,12 +243,13 @@ export class Transport {
     return ended;
   }
 
-  /** `error` as a cause, or a copy of its message without the key when the key is in it. */
-  private scrubbed(error: unknown): unknown {
-    const secret = this.#secret;
-    if (!secret) return error;
-    const text = (e: unknown): string => (e instanceof Error ? `${e.message} ${text(e.cause)}` : String(e ?? ""));
-    return text(error).includes(secret) ? new Error(text(error).split(secret).join("<api key>")) : error;
+  /**
+   * A new error standing for `error` as a cause: only its name, its message and its `code`, `errno` and `syscall`
+   * (strings or numbers), the key cut out, and so for its own causes, three deep. Never the original object, which may
+   * carry the request (its headers, the key among them).
+   */
+  private scrubbed(error: unknown): Error {
+    return safeCause(error, this.#secret);
   }
 }
 
@@ -256,4 +277,57 @@ export function checkClientVersion(version: unknown): string {
     );
   }
   return version;
+}
+
+/** Why a request or answer body was not read whole. */
+export class BodyError extends Error {
+  constructor(readonly status: number, readonly code: string) {
+    super(code);
+  }
+}
+
+/** The largest block readAll() starts with; it grows by doubling, never past the limit. */
+const FIRST_BLOCK = 64 * 1024;
+
+/**
+ * A stream read whole, or a {@link BodyError} with `tooLarge` once it passes `limit` bytes. `signal` cancels the read
+ * (its reason is thrown) without waiting for the stream's own cancel to settle. The bytes are kept in one block, grown
+ * by doubling (so at most twice what was read), empty chunks skipped; the reader is released on every path.
+ */
+export async function readAll(stream: ReadableStream<Uint8Array>, limit: number, signal: AbortSignal, tooLarge: number): Promise<Uint8Array<ArrayBuffer>> {
+  const reader = stream.getReader();
+  let block = new Uint8Array(new ArrayBuffer(Math.min(limit, FIRST_BLOCK)));
+  let size = 0;
+  // Cancelling the stream ends a pending read at once, whatever its source does.
+  const stop = () => void reader.cancel(signal.reason).catch(() => undefined);
+  signal.addEventListener("abort", stop, { once: true });
+  try {
+    if (signal.aborted) throw signal.reason;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (signal.aborted) throw signal.reason;
+      if (done) break;
+      if (!(value instanceof Uint8Array)) throw new TypeError("a body chunk is not bytes");
+      if (!value.byteLength) continue;
+      if (size + value.byteLength > limit) throw new BodyError(tooLarge, "too large");
+      if (size + value.byteLength > block.length) {
+        const grown = new Uint8Array(new ArrayBuffer(Math.min(limit, Math.max(block.length * 2, size + value.byteLength))));
+        grown.set(block.subarray(0, size));
+        block = grown;
+      }
+      block.set(value, size);
+      size += value.byteLength;
+    }
+  } catch (error) {
+    void reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", stop);
+    try {
+      reader.releaseLock();
+    } catch {
+      // a runtime that refuses to release with a read pending: the stream is cancelled anyway
+    }
+  }
+  return block.subarray(0, size);
 }

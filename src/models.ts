@@ -7,7 +7,7 @@ import { API_KEY_ENV, authorization, KEY_PER_SITE, requestUrl, safeMessage, scru
 
 export { scrub };
 import { DreamAuthError, DreamConfigError, DreamProtocolError, DreamServerError } from "./errors.js";
-import { cancelled, inBrowser, type FetchLike } from "./transport.js";
+import { BodyError, cancelled, inBrowser, MAX_REPLY_BYTES, readAll, type FetchLike } from "./transport.js";
 import { CLIENT_VERSION } from "./version.js";
 
 /** The public Dream-1 checkpoints, as the platform lists them in 2026-10. */
@@ -91,18 +91,22 @@ export async function callService(method: string, path: string, options: Service
     let status: number;
     let text: string;
     const timeout = AbortSignal.timeout(TIMEOUT_MS);
+    const ends = signal ? AbortSignal.any([signal, timeout]) : timeout;
     try {
       const reply = await fetchImpl(target, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        signal: ends,
         redirect: "manual",
       });
       status = reply.status;
-      text = await reply.text();
+      // Counted as it streams and cancelled at the limit: an answer with no Content-Length is never buffered whole.
+      text = reply.body ? new TextDecoder().decode(await readAll(reply.body, MAX_REPLY_BYTES, ends, 0)) : "";
     } catch (error) {
       if (signal?.aborted) throw cancelled(signal, `${what} was cancelled`);
+      // Not retried: the same service would answer the same.
+      if (error instanceof BodyError) throw new DreamProtocolError(`the Dream service at ${url} answered more than ${MAX_REPLY_BYTES} bytes`);
       if (attempt + 1 >= attempts) {
         // The guarded formatter: a message getter or a string conversion that throws never escapes.
         const why = timeout.aborted ? `no answer within ${TIMEOUT_MS / 1000} s` : safeMessage(error);

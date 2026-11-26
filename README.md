@@ -108,7 +108,8 @@ export default {
 `proxyUrl` is the default of `baseUrl`, `platformUrl` and `dataUrl`, and always turns `proxyHeaders` on (`proxyHeaders:
 false` with it is refused): the proxy refuses a GET without `Dream-Client-Version`. If you point `baseUrl`,
 `platformUrl` or `dataUrl` at a proxy one by one instead, set `proxyHeaders: true`. With an `apiKey`, every service URL,
-a relative one resolved against the page, must be `https://` or this computer's (see Plain http below). A browser
+a relative one resolved against the page (and to the page's own origin), must be `https://` or this computer's (see
+Plain http below). A browser
 cannot set `User-Agent`, so with `proxyHeaders` the client sends `Dream-Client-Version` and `Dream-Client-Instance` (8 random hex digits per
 policy), and the proxy builds `User-Agent: dream-client/<version> <instance>` upstream, as the Python client sends it.
 [`examples/browser-proxy/`](examples/browser-proxy/) has a Node server and a page.
@@ -164,8 +165,9 @@ answer is parsed and written anew, never passed through**, and only in the shape
   a field of another type is left out), `session_id` exactly as sent (one longer than 4096 characters withholds the
   answer), and of `timing` only `gateway_ms` and `serve_infer_ms`, when numbers (null, absent or unfamiliar timing is
   dropped, the answer kept). With an OK code (`DA-0000`, `DA-0001`), `actions` as it came, when it keeps the
-  [action rules](#the-action-rules); one that breaks them is answered 502 `{ proxy_error: "action refused", detail }`,
-  which the client raises as a `DreamActionError`. A refusal's `actions` are not read at all, so nothing in them can
+  [action rules](#the-action-rules); one that breaks them is answered 502 `{ proxy_error: "action refused", detail:
+  "it breaks the action rules" }` (a fixed text: the rule's own message names keys of the answer), which the client
+  raises as a `DreamActionError`. A refusal's `actions` are not read at all, so nothing in them can
   withhold its envelope.
 - The models list: each model's fields the client reads, each of its type. Training data: `cameras` and `prompts` as
   given; a prompt that is not a string, or longer than 64 KiB, withholds the answer rather than changing the list.
@@ -182,7 +184,9 @@ or any run of base64, base64url or hex, at every alignment, two levels deep, or 
 the guarantee: the key does not leave in those forms; a key split across strings or otherwise transformed is not
 detected. The check is bounded (`ANSWER_LIMITS`: 32 levels of nesting, strings of 64 KiB, keys and session ids of 4096
 characters, a million values kept for the whole answer, counted before they are scheduled and before anything is
-written, and 4 MiB of decoding); an answer past a bound is withheld too.
+written, and 4 MiB of decoding); an answer past a bound is withheld too. The parse itself stops at a million values
+read and 34 levels of nesting, before it allocates the next value or the action rules walk the answer, so such an
+answer is withheld whatever its status envelope says.
 
 **The key format is this proxy's policy** (Python sets none): at least 16 letters, digits or `._~+/=-`, no spaces. It
 keeps the exact match from hitting short field names (a key could still equal a longer one, such as
@@ -192,7 +196,8 @@ keeps the exact match from hitting short field names (a key could still equal a 
 a relative URL resolved against the page; the internal `Transport` and `callService`), the destination must be
 `https://` or this computer: `localhost` or any name under `.localhost` (trusted by its spelling, as browsers do),
 127.0.0.0/8, `[::1]` or `[::ffff:127.0.0.1]`. `allowInsecureHttp: true` (literally `true`) lets the key go over plain
-http on a network you trust. **The client identity sent upstream is the proxy's,
+http on a network you trust. A relative URL with the key must also resolve to the page's or worker's own origin
+(`location`): one a `<base>` element sends to another site is refused before the key is attached. **The client identity sent upstream is the proxy's,
 never the caller's:** `Dream-Client-Version: <clientVersion>` and `User-Agent: dream-client/<clientVersion>
 <instance>` on the POSTs (the instance from the client's `Dream-Client-Instance`, or the one a non-browser client's
 `User-Agent` names), and `User-Agent: dream-client/<clientVersion>` on the GETs. The version decides whether the
@@ -465,6 +470,12 @@ These differences are deliberate:
 - **The IK lead** (`ikLeadMs`, above): the seam counts the client IK's solve time as run; Python's counts the round
   trip only. `ikLeadMs: 0` restores Python's.
 - **`takeoverAt()`** (above) has no Python counterpart; it checks what it is given as getAction() checks a reply.
+- **Short rows.** When the observation measures an arm's joints (or client IK names them), every row of that arm's
+  chunk must hold the joints and the grip, raw processing included; a narrower one is a `DreamActionError`. Python
+  joins only the joints it has and returns the short rows.
+- **Reply size.** A reply read straight from the gateway, the platform or the data service is counted as it streams
+  and refused past 16 MiB (`MAX_REPLY_BYTES` in `@makermods/dreamlabs/internal`), as a proxy refuses an answer past
+  its `maxResponseBytes`.
 - **Seam overflow.** A finite reply whose filtered rows overflow (rows alternating near ±1.7e308) is refused as a
   `DreamActionError`, before any arm's plan is kept; Python returns the infinities.
 - **Snapshots.** `setObservation()` and `PolicyClient.getAction()` deep-copy the observation's numbers, so a sensor
@@ -539,6 +550,7 @@ by the cases it applies to:
 | `proxy_limit` | the proxy withholds a session id longer than 4096 characters rather than pass an unbounded value |
 | `python_error` | Python fails with numpy's ValueError (not a DreamError); this client refuses the reply as a DreamActionError |
 | `raw_unfiltered` | processing 'raw' (TypeScript only) runs no filter: a chunk Python's filter fails on is returned as it came |
+| `short_rows` | an arm's chunk whose rows are narrower than its measured joints and grip is refused: Python joins the joints it has and returns the short rows |
 
 ## Not ported (gaps)
 

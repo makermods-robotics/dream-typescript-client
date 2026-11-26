@@ -424,6 +424,9 @@ export class DreamClient {
       throw error;
     }
     this.handOver(roundTrip(sentS, sent, frameKeys, action, policy.lastTiming, null, trained));
+    // A callback may have closed or replaced the policy, or fired the caller's signal: the action is no one's answer.
+    if (this.policyClient !== policy) throw new DreamCancelled("getAction() was cancelled: its policy was closed or replaced meanwhile");
+    if (options.signal?.aborted) throw cancelled(options.signal, "getAction() was cancelled");
     return action;
   }
 

@@ -4601,6 +4601,388 @@
    "spec": null
   },
   {
+   "deliberate": {
+    "direct": "short_rows",
+    "proxy": "short_rows",
+    "raw": "short_rows"
+   },
+   "name": "q_r_chunk rows narrower than the measured arm",
+   "observation": {
+    "prompt": "x",
+    "state.arm_r.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2],[0.1,0.2]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "short_rows",
+    "proxy": "short_rows",
+    "raw": "short_rows"
+   },
+   "name": "q_r_chunk rows narrower than the declared arm",
+   "observation": {
+    "prompt": "x",
+    "state.arm_r.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2],[0.1,0.2]]}}",
+   "spec": {
+    "state": {
+     "arm_r.joint_pos": {
+      "shape": [
+       6
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "q_r_chunk rows of the arm's joints and grip",
+   "observation": {
+    "prompt": "x",
+    "state.arm_r.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ],
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_r_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ],
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_r_chunk\":[[0.1,0.2,0.3,0.4,0.5,0.6,0.7],[0.1,0.2,0.3,0.4,0.5,0.6,0.7]]}}",
+   "spec": {
+    "state": {
+     "arm_r.joint_pos": {
+      "shape": [
+       6
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {
+    "direct": "short_rows",
+    "proxy": "short_rows",
+    "raw": "short_rows"
+   },
+   "name": "q_l_chunk rows narrower than the measured arm",
+   "observation": {
+    "prompt": "x",
+    "state.arm_l.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_l_chunk\":[[0.1,0.2],[0.1,0.2]]}}",
+   "spec": null
+  },
+  {
+   "deliberate": {
+    "direct": "short_rows",
+    "proxy": "short_rows",
+    "raw": "short_rows"
+   },
+   "name": "q_l_chunk rows narrower than the declared arm",
+   "observation": {
+    "prompt": "x",
+    "state.arm_l.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2
+       ],
+       [
+        0.1,
+        0.2
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_l_chunk\":[[0.1,0.2],[0.1,0.2]]}}",
+   "spec": {
+    "state": {
+     "arm_l.joint_pos": {
+      "shape": [
+       6
+      ]
+     }
+    }
+   }
+  },
+  {
+   "deliberate": {},
+   "name": "q_l_chunk rows of the arm's joints and grip",
+   "observation": {
+    "prompt": "x",
+    "state.arm_l.joint_pos": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "python": {
+    "loose": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ],
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ]
+      ]
+     },
+     "session_id_length": 2
+    },
+    "strict": {
+     "action": {
+      "q_l_chunk": [
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ],
+       [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7
+       ]
+      ]
+     },
+     "session_id_length": 2
+    }
+   },
+   "reply": "{\"status\":{\"code\":\"DA-0000\"},\"session_id\":\"s1\",\"actions\":{\"q_l_chunk\":[[0.1,0.2,0.3,0.4,0.5,0.6,0.7],[0.1,0.2,0.3,0.4,0.5,0.6,0.7]]}}",
+   "spec": {
+    "state": {
+     "arm_l.joint_pos": {
+      "shape": [
+       6
+      ]
+     }
+    }
+   }
+  },
+  {
    "deliberate": {},
    "name": "observation object declared scalar",
    "observation": {
@@ -4682,7 +5064,8 @@
   "not_a_number": "a string, boolean or object where a joint value belongs is refused: numpy converts '0.5' and true, and Python returns other leaves of heads it does not filter",
   "proxy_limit": "the proxy withholds a session id longer than 4096 characters rather than pass an unbounded value",
   "python_error": "Python fails with numpy's ValueError (not a DreamError); this client refuses the reply as a DreamActionError",
-  "raw_unfiltered": "processing 'raw' (TypeScript only) runs no filter: a chunk Python's filter fails on is returned as it came"
+  "raw_unfiltered": "processing 'raw' (TypeScript only) runs no filter: a chunk Python's filter fails on is returned as it came",
+  "short_rows": "an arm's chunk whose rows are narrower than its measured joints and grip is refused: Python joins the joints it has and returns the short rows"
  },
  "ts_outcome": {
   "checked_heads": "DreamActionError",
@@ -4691,6 +5074,7 @@
   "not_a_number": "DreamActionError",
   "proxy_limit": "DreamProtocolError",
   "python_error": "DreamActionError",
-  "raw_unfiltered": "ok"
+  "raw_unfiltered": "ok",
+  "short_rows": "DreamActionError"
  }
 }

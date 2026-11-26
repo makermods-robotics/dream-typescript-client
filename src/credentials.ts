@@ -251,8 +251,9 @@ export function requireHttps(url: string, what: string, allowInsecureHttp: unkno
 
 /**
  * The URL a request goes to, built once: `base` + `path`, a relative one resolved the way fetch resolves it (against
- * the page's `document.baseURI`, or a worker's `location`). With a key attached (`keyed`) it must resolve, and be
- * `https:` or this computer's (or `allowInsecureHttp` literally `true`); pass the result to fetch as it is.
+ * the page's `document.baseURI`, or a worker's `location`). With a key attached (`keyed`) it must resolve, a relative
+ * one to the page's or worker's own origin (`location`), and be `https:` or this computer's (or `allowInsecureHttp`
+ * literally `true`); pass the result to fetch as it is.
  *
  * @throws DreamConfigError It does not, with a key.
  */
@@ -266,6 +267,22 @@ export function requestUrl(base: string, path: string, what: string, keyed: bool
   } catch {
     if (keyed) throw new DreamConfigError(`${what} is relative and there is no page to resolve it against, so the API key would go to no known address`, { kind: "unsupported", key: what, row: null });
     return joined;
+  }
+  if (keyed && !URL.canParse(joined)) {
+    // A page's <base> may name another site: a relative URL keeps the key on the page's own origin, or is refused.
+    let own: string | null = null;
+    try {
+      own = typeof scope.location?.href === "string" ? new URL(scope.location.href).origin : null;
+    } catch {
+      own = null;
+    }
+    if (own === null || absolute.origin !== own) {
+      throw new DreamConfigError(`${what} is relative and resolves to another origin than the page's (a <base> element), so the API key would go to another site: give the URL whole`, {
+        kind: "unsupported",
+        key: what,
+        row: null,
+      });
+    }
   }
   if (keyed) requireHttps(absolute.href, what, allowInsecureHttp);
   return absolute.href;

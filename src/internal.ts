@@ -105,6 +105,7 @@ export {
   encode,
   END_SESSION_PATH,
   GET_ACTION_PATH,
+  MAX_REPLY_BYTES,
   Transport,
   USER_AGENT_PRODUCT,
   type Exchange,

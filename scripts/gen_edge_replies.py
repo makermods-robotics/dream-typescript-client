@@ -32,6 +32,7 @@ DELIBERATE = {
     "proxy_limit": "the proxy withholds a session id longer than 4096 characters rather than pass an unbounded value",
     "python_error": "Python fails with numpy's ValueError (not a DreamError); this client refuses the reply as a DreamActionError",
     "raw_unfiltered": "processing 'raw' (TypeScript only) runs no filter: a chunk Python's filter fails on is returned as it came",
+    "short_rows": "an arm's chunk whose rows are narrower than its measured joints and grip is refused: Python joins the joints it has and returns the short rows",
 }
 # What the TypeScript client raises for each deliberate difference.
 TS_OUTCOME = {reason: {"proxy_limit": "DreamProtocolError", "raw_unfiltered": "ok"}.get(reason, "DreamActionError") for reason in DELIBERATE}
@@ -139,6 +140,14 @@ def cases():
     out.append(case("attack per_key flat part with null", '{"per_key":{"action.a":[1,null]}}', deliberate=dict.fromkeys(ALL, "checked_heads")))
     out.append(case("attack escaped head key", f'{{"\\u0071_r_chunk":{ROWS}}}'))
     out.append(case("attack extension -0e5", '{"extra":-0e5}'))
+    for side in ("r", "l"):
+        pose = {f"state.arm_{side}.joint_pos": [0.0] * 6, "prompt": "x"}
+        declared = {"state": {f"arm_{side}.joint_pos": {"shape": [6]}}}
+        short = f'{{"q_{side}_chunk":[[0.1,0.2],[0.1,0.2]]}}'
+        out.append(case(f"q_{side}_chunk rows narrower than the measured arm", short, observation=pose, deliberate=dict.fromkeys(ALL, "short_rows")))
+        out.append(case(f"q_{side}_chunk rows narrower than the declared arm", short, spec=declared, observation=pose, deliberate=dict.fromkeys(ALL, "short_rows")))
+        full = f'{{"q_{side}_chunk":[[0.1,0.2,0.3,0.4,0.5,0.6,0.7],[0.1,0.2,0.3,0.4,0.5,0.6,0.7]]}}'
+        out.append(case(f"q_{side}_chunk rows of the arm's joints and grip", full, spec=declared, observation=pose))
     out.append(case("observation object declared scalar", f'{{"q_r_chunk":{ROWS}}}', spec={"state": {"meta": {"shape": []}}}, observation={"prompt": "x", "state.meta": {"a": 1}}))
     return out
 

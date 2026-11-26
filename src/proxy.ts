@@ -31,10 +31,12 @@
 import { authorization, checkServiceUrl, DEFAULT_DATA_URL, DEFAULT_GATEWAY_URL, DEFAULT_PLATFORM_URL, PROXY_KEY, PROXY_KEY_MIN, requireHttps } from "./credentials.js";
 import { DreamConfigError } from "./errors.js";
 import { FINE_TUNE_PREFIX, pyQuote } from "./trained-inputs.js";
-import { checkClientVersion, CLIENT_INSTANCE_HEADER, CLIENT_VERSION_HEADER, END_SESSION_PATH, GET_ACTION_PATH, USER_AGENT_PRODUCT } from "./transport.js";
+import { BodyError, checkClientVersion, CLIENT_INSTANCE_HEADER, CLIENT_VERSION_HEADER, END_SESSION_PATH, GET_ACTION_PATH, readAll, USER_AGENT_PRODUCT } from "./transport.js";
+
+export { readAll };
 import { CLIENT_VERSION } from "./version.js";
 import { checkAction, NO_DECLARED_HEADS } from "./actions.js";
-import { parseRaw, RawNumber, setOwn, writeRaw, type RawJson } from "./json-raw.js";
+import { parseRaw, RawNumber, setOwn, writeRaw, type ParseLimits, type RawJson } from "./json-raw.js";
 
 /** A standard fetch handler: what createDreamProxy() returns. */
 export type FetchHandler = (request: Request) => Promise<Response>;
@@ -120,13 +122,6 @@ interface Route {
   method: "GET" | "POST";
   target: string;
   answer: AnswerShape;
-}
-
-/** Why a request or answer body was not read whole. */
-class BodyError extends Error {
-  constructor(readonly status: number, readonly code: string) {
-    super(code);
-  }
 }
 
 /**
@@ -355,6 +350,12 @@ export const ANSWER_LIMITS = {
   decoded: 4 * 1024 * 1024,
 } as const;
 
+/**
+ * The bounds the parse itself stops at, before it allocates a value or the action rules walk one: every value read
+ * counts against `nodes`, and the deepest value kept (in a model's `embodiment_config`) starts two levels down.
+ */
+const PARSE_LIMITS: ParseLimits = { nodes: ANSWER_LIMITS.nodes, depth: ANSWER_LIMITS.depth + 2 };
+
 /** An answer outside {@link ANSWER_LIMITS} or its route's shape. */
 class Unfit extends Error {}
 
@@ -442,11 +443,13 @@ function genericRefusal(status: number) {
 
 /** An action the action rules refuse, named for the client (which raises it as a DreamActionError). */
 class ActionRefused extends Error {}
+/** The detail of every refused action: nothing of the answer itself. */
+const ACTION_REFUSED = "it breaks the action rules";
 
 /**
  * The answer to pass back, written anew from the parse with every number byte-identical to how it arrived; null to
- * withhold it; or `{ actionRefused }` when its action breaks the action rules (src/actions.ts). It must parse as UTF-8
- * JSON and fit its route:
+ * withhold it; or `{ actionRefused }`, a fixed text, when its action breaks the action rules (src/actions.ts). It
+ * must parse as UTF-8 JSON and fit its route:
  *
  * - get_action and end_session: an object with a `status` envelope whose `code` is a string; of the envelope, `name`,
  *   `reason`, `detail` and `trace_id` are kept when strings (of at most `ANSWER_LIMITS.string` characters) or null,
@@ -470,7 +473,7 @@ class ActionRefused extends Error {}
 export function answerFor(shape: AnswerShape, status: number, payload: Uint8Array | null, secret: string, work: ScanWork = { nodes: 0, decoded: 0 }): string | null | { actionRefused: string } {
   let decoded: RawJson | undefined;
   try {
-    decoded = parseRaw(new TextDecoder("utf-8", { fatal: true }).decode(payload ?? new Uint8Array(0)));
+    decoded = parseRaw(new TextDecoder("utf-8", { fatal: true }).decode(payload ?? new Uint8Array(0)), PARSE_LIMITS);
   } catch {
     decoded = undefined;
   }
@@ -483,9 +486,8 @@ export function answerFor(shape: AnswerShape, status: number, payload: Uint8Arra
     if (written.includes(secret)) return refusal ? generic() : null;
     return written;
   } catch (error) {
-    if (error instanceof ActionRefused) {
-      return { actionRefused: error.message.includes(secret) ? "an actuator head is not joint values" : error.message };
-    }
+    // A fixed text: the rule's message names keys of the answer, which may carry the key in an encoding.
+    if (error instanceof ActionRefused) return { actionRefused: ACTION_REFUSED };
     return refusal ? generic() : null;
   }
 }
@@ -686,52 +688,6 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal, late: (value:
       )
       .finally(() => signal.removeEventListener("abort", onAbort));
   });
-}
-
-/** The largest block readAll() starts with; it grows by doubling, never past the limit. */
-const FIRST_BLOCK = 64 * 1024;
-
-/**
- * A stream read whole, or a {@link BodyError} with `tooLarge` once it passes `limit` bytes. `signal` cancels the read
- * (its reason is thrown) without waiting for the stream's own cancel to settle. The bytes are kept in one block, grown
- * by doubling (so at most twice what was read), empty chunks skipped; the reader is released on every path.
- */
-export async function readAll(stream: ReadableStream<Uint8Array>, limit: number, signal: AbortSignal, tooLarge: number): Promise<Uint8Array<ArrayBuffer>> {
-  const reader = stream.getReader();
-  let block = new Uint8Array(new ArrayBuffer(Math.min(limit, FIRST_BLOCK)));
-  let size = 0;
-  // Cancelling the stream ends a pending read at once, whatever its source does.
-  const stop = () => void reader.cancel(signal.reason).catch(() => undefined);
-  signal.addEventListener("abort", stop, { once: true });
-  try {
-    if (signal.aborted) throw signal.reason;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (signal.aborted) throw signal.reason;
-      if (done) break;
-      if (!(value instanceof Uint8Array)) throw new TypeError("a body chunk is not bytes");
-      if (!value.byteLength) continue;
-      if (size + value.byteLength > limit) throw new BodyError(tooLarge, "too large");
-      if (size + value.byteLength > block.length) {
-        const grown = new Uint8Array(new ArrayBuffer(Math.min(limit, Math.max(block.length * 2, size + value.byteLength))));
-        grown.set(block.subarray(0, size));
-        block = grown;
-      }
-      block.set(value, size);
-      size += value.byteLength;
-    }
-  } catch (error) {
-    void reader.cancel().catch(() => undefined);
-    throw error;
-  } finally {
-    signal.removeEventListener("abort", stop);
-    try {
-      reader.releaseLock();
-    } catch {
-      // a runtime that refuses to release with a read pending: the stream is cancelled anyway
-    }
-  }
-  return block.subarray(0, size);
 }
 
 /** `response` with `extra` headers added (the CORS headers of an allowed origin). */

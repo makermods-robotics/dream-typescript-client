@@ -25,6 +25,8 @@ export const CLIENT_VERSION_HEADER = "Dream-Client-Version";
 export const CLIENT_INSTANCE_HEADER = "Dream-Client-Instance";
 /** The product every request's `User-Agent` names, `dream-client/<version> <8 hex>`, outside browsers. */
 export const USER_AGENT_PRODUCT = "dream-client";
+/** The largest reply read from the gateway or a service, bytes (a proxy's default answer limit): past it, refused. */
+export const MAX_REPLY_BYTES = 16 * 1024 * 1024;
 
 /** What one request cost on the wire, whether or not a reply came back (`transport.Exchange`). */
 export interface Exchange {
@@ -183,6 +185,7 @@ export class Transport {
     this.active.add(end);
     const started = this.now();
     let raw = "";
+    let responseBytes = 0;
     let status = 0;
     try {
       // The one URL the request goes to, checked where the key is attached, and given to fetch as it is.
@@ -196,9 +199,13 @@ export class Transport {
         redirect: "manual",
       });
       status = reply.status;
-      raw = await reply.text();
+      // Counted as it streams and cancelled at the limit: a reply with no Content-Length is never buffered whole first.
+      const bytes = reply.body ? await readAll(reply.body, MAX_REPLY_BYTES, abort.signal, 0) : new Uint8Array(0);
+      responseBytes = bytes.length;
+      raw = new TextDecoder().decode(bytes);
     } catch (error) {
       if (ended) throw this.aborted(ended, error);
+      if (error instanceof BodyError) throw new DreamProtocolError(`inference reply from ${this.baseUrl} is larger than ${MAX_REPLY_BYTES} bytes; is the correct DreamAPI gateway running there?`);
       // A fetch that refuses a header names its value: never let the key into a message.
       // One safe copy of the error, its cause read once under a guard (a getter may throw), for the message and the cause.
       const safe = this.scrubbed(error);
@@ -208,7 +215,7 @@ export class Transport {
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       this.active.delete(end);
-      this.lastExchange = { rttMs: this.now() - started, requestBytes, responseBytes: new TextEncoder().encode(raw).length };
+      this.lastExchange = { rttMs: this.now() - started, requestBytes, responseBytes };
     }
     // A reply read after the abort fired (a fetch that ignores its signal) is not the answer: the caller has moved on.
     if (ended) throw this.aborted(ended);
@@ -270,4 +277,57 @@ export function checkClientVersion(version: unknown): string {
     );
   }
   return version;
+}
+
+/** Why a request or answer body was not read whole. */
+export class BodyError extends Error {
+  constructor(readonly status: number, readonly code: string) {
+    super(code);
+  }
+}
+
+/** The largest block readAll() starts with; it grows by doubling, never past the limit. */
+const FIRST_BLOCK = 64 * 1024;
+
+/**
+ * A stream read whole, or a {@link BodyError} with `tooLarge` once it passes `limit` bytes. `signal` cancels the read
+ * (its reason is thrown) without waiting for the stream's own cancel to settle. The bytes are kept in one block, grown
+ * by doubling (so at most twice what was read), empty chunks skipped; the reader is released on every path.
+ */
+export async function readAll(stream: ReadableStream<Uint8Array>, limit: number, signal: AbortSignal, tooLarge: number): Promise<Uint8Array<ArrayBuffer>> {
+  const reader = stream.getReader();
+  let block = new Uint8Array(new ArrayBuffer(Math.min(limit, FIRST_BLOCK)));
+  let size = 0;
+  // Cancelling the stream ends a pending read at once, whatever its source does.
+  const stop = () => void reader.cancel(signal.reason).catch(() => undefined);
+  signal.addEventListener("abort", stop, { once: true });
+  try {
+    if (signal.aborted) throw signal.reason;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (signal.aborted) throw signal.reason;
+      if (done) break;
+      if (!(value instanceof Uint8Array)) throw new TypeError("a body chunk is not bytes");
+      if (!value.byteLength) continue;
+      if (size + value.byteLength > limit) throw new BodyError(tooLarge, "too large");
+      if (size + value.byteLength > block.length) {
+        const grown = new Uint8Array(new ArrayBuffer(Math.min(limit, Math.max(block.length * 2, size + value.byteLength))));
+        grown.set(block.subarray(0, size));
+        block = grown;
+      }
+      block.set(value, size);
+      size += value.byteLength;
+    }
+  } catch (error) {
+    void reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", stop);
+    try {
+      reader.releaseLock();
+    } catch {
+      // a runtime that refuses to release with a read pending: the stream is cancelled anyway
+    }
+  }
+  return block.subarray(0, size);
 }

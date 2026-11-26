@@ -72,28 +72,24 @@
           },
           "upstream": {
             "dreamlabs": {
-              "record_sha256": "40b02e247777e8a32682f040a43ab2c36db7643bb1668d12db09ea3c72022c2a",
+              "record_sha256": "a08ef67138a29d499fa3f2ebb652051fcbb70cc93cbd532e31e4af66d9470c96",
               "version": "1.0.42"
             },
             "dreamlabs-client": {
-              "record_sha256": "52764139d263a1a083a612eec94a16faf2d4b2e1233f84dea1782ac8791a77d2",
+              "record_sha256": "e66b0509e26acfd96f8be957fb2e8d529683e8c337c23eb82520631704dc0261",
               "version": "1.1.7"
             }
           },
           "versions": {
             "dreamlabs": "1.0.42",
             "dreamlabs-client": "1.1.7",
-            "jax": "0.7.1",
-            "jaxlib": "0.7.1",
             "jaxls": "vendored in dreamlabs 1.0.42",
             "numpy": "2.2.6",
             "pyroki": "vendored in dreamlabs 1.0.42",
-            "python": "3.12.14",
-            "scipy": "1.18.1",
-            "yourdfpy": "0.0.60"
+            "python": "3.13.5"
           }
         },
-        "sha256": "d5c1be8ba347315f10d77f4920c758dc1c932ddb08b37c66f53196e4e12ee92a"
+        "sha256": "394f2824039a3baf9d7f86d2e43d9750afc3dddf52c831184fc0c29c5f841951"
       }
     }
   },

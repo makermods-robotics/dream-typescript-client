@@ -37,15 +37,27 @@ const NUMBER = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
 const STRING = /"(?:[^"\\\u0000-\u001f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"/y;
 const SPACE = /[ \t\n\r]*/y;
 
+/** Bounds a parse stops at: values read, all told, and nesting of arrays and objects. */
+export interface ParseLimits {
+  nodes: number;
+  depth: number;
+}
+
 /**
  * Reads JSON `text` as `JSON.parse` does, keeping every number as a {@link RawNumber}.
  *
+ * @param limits Checked before each value is read: past them nothing more is allocated.
  * @throws SyntaxError `text` is not one JSON value (the message names the offset only, never the text).
+ * @throws RangeError `text` passes `limits`.
  */
-export function parseRaw(text: string): RawJson {
+export function parseRaw(text: string, limits?: ParseLimits): RawJson {
   let i = 0;
+  let nodes = 0;
   const fail = (): never => {
     throw new SyntaxError(`not JSON at offset ${i}`);
+  };
+  const tooMuch = (): never => {
+    throw new RangeError(`JSON past its limits at offset ${i}`);
   };
   const space = () => {
     SPACE.lastIndex = i;
@@ -92,7 +104,9 @@ export function parseRaw(text: string): RawJson {
   };
   const open = (): boolean => {
     space();
+    if (limits && ++nodes > limits.nodes) tooMuch();
     if (text[i] === "[") {
+      if (limits && stack.length >= limits.depth) tooMuch();
       i++;
       stack.push({ kind: "array", out: [] });
       space();
@@ -104,6 +118,7 @@ export function parseRaw(text: string): RawJson {
       return true;
     }
     if (text[i] === "{") {
+      if (limits && stack.length >= limits.depth) tooMuch();
       i++;
       stack.push({ kind: "object", out: {}, key: null });
       space();

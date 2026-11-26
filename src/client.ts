@@ -485,6 +485,7 @@ export class PolicyClient {
       const ikLeadS = this.ik && execution.elapsedExecutionS === undefined ? this.predictIkMs() / 1000 : 0;
       const inFlightS = execution.elapsedExecutionS ?? rttS + (execution.observationAgeMs ?? 0) / 1000 + ikLeadS;
       if (this.processing === "raw") {
+        checkArmWidths(action, armJoints);
         this.finish(started, null, { raw: action, ik: null, inFlightS, ikLeadS, processing: "raw" });
         this.live(signal);
         return action as ActionDict;
@@ -514,6 +515,7 @@ export class PolicyClient {
           if (this.ikTimes.length > IK_LEAD_SOLVES) this.ikTimes.shift();
         }
       }
+      checkArmWidths(solved, armJoints);
       const joined = this.smoother.prepare(observation, solved, inFlightS, last);
       this.finish(started, ikMs, { raw: action, ik: trace, inFlightS, ikLeadS, processing: "default" });
       // A callback (onDiagnostics) may have cancelled or closed: then nothing is returned and no plan is kept.
@@ -711,7 +713,8 @@ export class PolicyClient {
       const actions = isObject(tree) ? (tree as Record<string, RawJson>).actions : undefined;
       const inexact = actions === undefined ? null : firstInexact(actions);
       if (inexact) {
-        throw new DreamActionError(`the model's reply holds the integer ${inexact.raw}, which a JavaScript number cannot hold exactly, so nothing is returned`, detail("non_finite", null));
+        // Not the token itself: a gateway that echoes an all-digit key would put it in the message.
+        throw new DreamActionError("the model's reply holds an integer a JavaScript number cannot hold exactly, so nothing is returned", detail("non_finite", null));
       }
       return reply!.actions;
     };
@@ -804,6 +807,28 @@ function commandedOf(commanded: Commanded | null, armJoints: Readonly<Record<str
     out[key] = joints as number[];
   }
   return out;
+}
+
+/**
+ * Each arm's chunk, when it is rows and the arm's joint count is known: every row holds the joints and the grip.
+ *
+ * @throws DreamActionError A row is narrower: the smoother would join only the joints it has, and a loop would command
+ *   the arm from a truncated row.
+ */
+function checkArmWidths(action: Readonly<Record<string, unknown>>, armJoints: Readonly<Record<string, number | null>>): void {
+  for (const [key, joints] of Object.entries(armJoints)) {
+    const head = action[key];
+    if (joints === null || joints === undefined || !Object.hasOwn(action, key) || !Array.isArray(head)) continue;
+    const isRow = (r: unknown): r is ArrayLike<unknown> => Array.isArray(r) || (ArrayBuffer.isView(r) && !(r instanceof DataView));
+    for (let i = 0; i < head.length; i++) {
+      const row: unknown = head[i];
+      // Not rows (a flat list, as Python leaves it): checkAction() has held it to numbers.
+      if (!isRow(row)) continue;
+      if (row.length < joints + 1) {
+        throw new DreamActionError(`action key '${key}' row ${i} is ${row.length} wide; the arm has ${joints} joints and a grip, so nothing is returned`, detail("shape", key, i));
+      }
+    }
+  }
 }
 
 /**

@@ -12,6 +12,7 @@ const wire = fixture("wire.json");
 import { CLIENT_VERSION, DreamClient, DreamConfigError, PolicyClient } from "../src/index.js";
 import { nodeHandler } from "../src/node/index.js";
 import { ANSWER_LIMITS, answerFor, createDreamProxy, readAll, type DreamProxyOptions, type ScanWork } from "../src/proxy.js";
+import { parseRaw, writeRaw } from "../src/json-raw.js";
 
 const KEY = "dk_secret_proxy_key";
 
@@ -667,7 +668,7 @@ describe("createDreamProxy, third review", () => {
     const { handler } = through(reply);
     const answered = await action(handler);
     expect(answered.status).toBe(502);
-    expect(await answered.json()).toMatchObject({ proxy_error: "action refused", detail: expect.stringMatching(/non-finite number.*at key 'per_key.action.right_arm' row 1/) });
+    expect(await answered.json()).toEqual({ proxy_error: "action refused", detail: "it breaks the action rules" });
     // The existing regression, run through the proxy: no action reaches the caller, refused as an action.
     const client = new PolicyClient({ checkpoint: "c", baseUrl: "http://proxy.test", processing: "raw", proxyHeaders: true, fetch: (input, init) => handler(new Request(input, init)) });
     const error = await client.getAction({ prompt: "x" }).catch((e: Error) => e);
@@ -721,17 +722,16 @@ describe("createDreamProxy, third review", () => {
   });
 
   it("counts values before it schedules them: a wide array stops at the limit, a real answer is cheap", () => {
-    // One oversized array: counted up to the limit, then withheld.
+    // One oversized array: the parse stops at the limit, so the projection never starts.
     const wide = `{"status":{"code":"DA-0000"},"actions":{"extra":[${"0,".repeat(1_500_000)}0]}}`;
     const work: ScanWork = { nodes: 0, decoded: 0 };
     expect(answerFor("gateway", 200, new TextEncoder().encode(wide), SECRET, work)).toBeNull();
-    expect(work.nodes).toBe(ANSWER_LIMITS.nodes);
-    // Two arrays each within the limit, together past it: one budget for the whole reply, spent before anything is
-    // written.
+    expect(work.nodes).toBe(0);
+    // Two arrays each within the limit, together past it: one budget for the whole reply.
     const half = `[${"0,".repeat(600_000)}0]`;
     const pair: ScanWork = { nodes: 0, decoded: 0 };
     expect(answerFor("gateway", 200, new TextEncoder().encode(`{"status":{"code":"DA-0000"},"actions":{"a":${half},"b":${half}}}`), SECRET, pair)).toBeNull();
-    expect(pair.nodes).toBe(ANSWER_LIMITS.nodes);
+    expect(pair.nodes).toBe(0);
     // Eight heads of 48 rows of 7 values: every value kept counted once.
     const rows = Array.from({ length: 48 }, (_, r) => Array.from({ length: 7 }, (_, c) => Math.sin(r * 7 + c)));
     const per_key = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`action.part_${i}`, rows]));
@@ -892,8 +892,8 @@ describe("createDreamProxy, fourth review", () => {
       const body = `{"status":{"code":"DA-0000","retry_after_s":${token}},"actions":{"q_r_chunk":[[${token},0.5]],"extra":${token}},"timing":{"gateway_ms":${token}}}`;
       expect(gateway(body), token).toBe(body);
     }
-    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"extra":[1e400]}}')).toMatchObject({ actionRefused: expect.stringMatching(/non-finite/) });
-    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"q_r_chunk":[[-1e400]]}}')).toMatchObject({ actionRefused: expect.stringMatching(/non-finite/) });
+    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"extra":[1e400]}}')).toEqual({ actionRefused: "it breaks the action rules" });
+    expect(gateway('{"status":{"code":"DA-0000"},"actions":{"q_r_chunk":[[-1e400]]}}')).toEqual({ actionRefused: "it breaks the action rules" });
     // Ordinary joint values round-trip bit for bit.
     let seed = 1;
     const rows = Array.from({ length: 48 }, () => Array.from({ length: 7 }, () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 6.283185307179586));
@@ -902,7 +902,8 @@ describe("createDreamProxy, fourth review", () => {
   });
 
   it("never lets a refusal's discarded actions withhold its envelope", () => {
-    for (const actions of ['{"q_r_chunk":[[1e400]]}', '"junk"', "null", `[${"[".repeat(100)}${"]".repeat(100)}]`]) {
+    // Within the parse's bounds (the depth below its limit): past them, the answer is withheld before it is read.
+    for (const actions of ['{"q_r_chunk":[[1e400]]}', '"junk"', "null", `[${"[".repeat(30)}${"]".repeat(30)}]`]) {
       expect(JSON.parse(gateway(`{"status":{"code":"DA-2000","reason":"pool_full","retryable":true,"retry_after_s":5},"actions":${actions}}`) as string), actions).toEqual({
         status: { code: "DA-2000", reason: "pool_full", retryable: true, retry_after_s: 5 },
       });
@@ -985,5 +986,34 @@ describe("createDreamProxy, fifth review", () => {
   it("checks a number token kept for the key as it arrived", () => {
     const digits = "1234567890123456";
     expect(answerFor("gateway", 200, new TextEncoder().encode(`{"status":{"code":"DA-0000","retry_after_s":${digits}e0}}`), digits)).toBeNull();
+  });
+});
+
+describe("createDreamProxy, sixth review", () => {
+  const SECRET = "dk_SYNTHETIC_secret_7f3a9c";
+  const bytes = (text: string) => new TextEncoder().encode(text);
+
+  it("answers a refused action with a fixed detail, never a name from the answer (a key in base64 included)", async () => {
+    const hidden = btoa(SECRET);
+    const reply = `{"status":{"code":"DA-0000"},"session_id":"s","actions":{"per_key":{"${hidden}":[[0,null]]}}}`;
+    const mock = upstream(() => new Response(reply));
+    const handler = createDreamProxy({ apiKey: SECRET, allowedHosts: "any", fetch: mock.fetch });
+    const answered = await handler(new Request("http://proxy.test/v1/get_action", { method: "POST", body: "{}" }));
+    expect(answered.status).toBe(502);
+    const text = await answered.text();
+    expect(text).not.toContain(hidden);
+    expect(JSON.parse(text)).toEqual({ proxy_error: "action refused", detail: "it breaks the action rules" });
+    expect(answerFor("gateway", 200, bytes(reply), SECRET)).toEqual({ actionRefused: "it breaks the action rules" });
+  });
+
+  it("stops the parse at the value and depth limits, before the action rules walk the answer", () => {
+    expect(() => parseRaw("[1,2,3]", { nodes: 3, depth: 4 })).toThrow(RangeError);
+    expect(() => parseRaw("[[[0]]]", { nodes: 100, depth: 2 })).toThrow(RangeError);
+    expect(writeRaw(parseRaw("[[0]]", { nodes: 3, depth: 2 }))).toBe("[[0]]");
+    // Past the value limit, an action the rules would refuse is withheld unread: nothing was allocated past it.
+    const wide = `{"status":{"code":"DA-0000"},"actions":{"q_r_chunk":[[1e400]],"extra":[${"0,".repeat(ANSWER_LIMITS.nodes)}0]}}`;
+    const work: ScanWork = { nodes: 0, decoded: 0 };
+    expect(answerFor("gateway", 200, bytes(wide), SECRET, work)).toBeNull();
+    expect(work.nodes).toBe(0);
   });
 });

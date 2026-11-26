@@ -16,9 +16,17 @@ let server: Server;
 let url = "";
 let handler: (body: any) => { status?: number; body: unknown; delayMs?: number; headers?: Record<string, string> } = () => ({ body: {} });
 const seen: { path: string; headers: Record<string, unknown>; body: any }[] = [];
+/** The token this run's clients send: a request without it (another local process probing the port) is a stray. */
+const RUN = { "x-test-run": crypto.randomUUID() };
+const strays: string[] = [];
 
 beforeAll(async () => {
   server = createServer((request, response) => {
+    if (request.headers["x-test-run"] !== RUN["x-test-run"]) {
+      strays.push(`${request.method} ${request.url}`);
+      response.writeHead(404).end();
+      return;
+    }
     let text = "";
     request.on("data", (chunk) => (text += chunk));
     request.on("end", () => {
@@ -46,7 +54,7 @@ const observation = { "state.arm_r.joint_pos": [0, 0, 0, 0, 0, 0], "state.arm_l.
 
 describe("the transport", () => {
   it("aborts a slow reply as DreamTimeout, then works again", async () => {
-    const client = new PolicyClient({ checkpoint: "c", baseUrl: url, timeoutMs: 400 });
+    const client = new PolicyClient({ checkpoint: "c", baseUrl: url, headers: RUN, timeoutMs: 400 });
     handler = () => ({ ...ok(), delayMs: 1500 });
     await expect(client.getAction(observation)).rejects.toThrow(DreamTimeout);
     expect(client.lastTiming?.responseBytes).toBe(0);
@@ -66,13 +74,13 @@ describe("the transport", () => {
 
   it("does not follow a redirect with the key", async () => {
     handler = () => ({ status: 307, body: "", headers: { Location: "http://example.invalid/steal" } });
-    const client = new PolicyClient({ checkpoint: "c", baseUrl: url, apiKey: "dk_x" });
+    const client = new PolicyClient({ checkpoint: "c", baseUrl: url, headers: RUN, apiKey: "dk_x" });
     await expect(client.getAction(observation)).rejects.toThrow(DreamProtocolError);
     expect(seen.at(-1)!.headers.authorization).toBe("Bearer dk_x");
   });
 
   it("names the key JSON cannot carry and sends nothing", async () => {
-    const client = new PolicyClient({ checkpoint: "c", baseUrl: url });
+    const client = new PolicyClient({ checkpoint: "c", baseUrl: url, headers: RUN });
     const before = seen.length;
     await expect(client.getAction({ ...observation, "state.bad": [NaN] })).rejects.toThrow(/observation key 'state.bad' cannot be sent as JSON/);
     await expect(client.getAction({ ...observation, blob: new ArrayBuffer(2) })).rejects.toThrow(DreamObservationError);
@@ -80,7 +88,7 @@ describe("the transport", () => {
   });
 
   it("refuses a second getAction while one is in flight", async () => {
-    const client = new PolicyClient({ checkpoint: "c", baseUrl: url });
+    const client = new PolicyClient({ checkpoint: "c", baseUrl: url, headers: RUN });
     handler = () => ({ ...ok(), delayMs: 100 });
     const first = client.getAction(observation);
     await expect(client.getAction(observation)).rejects.toThrow(DreamError);
@@ -91,7 +99,7 @@ describe("the transport", () => {
   });
 
   it("releases the session on reset and close, and starts a new one after", async () => {
-    const client = new PolicyClient({ checkpoint: "ckpt", baseUrl: url });
+    const client = new PolicyClient({ checkpoint: "ckpt", baseUrl: url, headers: RUN });
     handler = (body) => (body.observation ? ok("ses_b") : { body: { status: { code: "DA-0000" } } });
     await client.getAction(observation);
     expect(client.sessionId).toBe("ses_b");
@@ -111,7 +119,7 @@ describe("the transport", () => {
       clock += 1500;
       return ok();
     };
-    const client = new PolicyClient({ checkpoint: "c", baseUrl: url, now: () => clock, onWarning: (w) => warnings.push(w) });
+    const client = new PolicyClient({ checkpoint: "c", baseUrl: url, headers: RUN, now: () => clock, onWarning: (w) => warnings.push(w) });
     for (let i = 0; i < 7; i++) await client.getAction(observation);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.message).toMatch(/Network is slow: get_action round trips are about 1500 ms \(network 1380 ms\)/);
@@ -123,7 +131,7 @@ describe("the transport", () => {
 
 describe("DreamClient", () => {
   it("needs a policy first", async () => {
-    const client = new DreamClient({ baseUrl: url });
+    const client = new DreamClient({ baseUrl: url, headers: RUN });
     expect(() => client.setObservation({ "video.a": "Zg==" }, {})).toThrow(/no policy is open/);
     await expect(client.getAction()).rejects.toThrow(DreamConfigError);
     expect(() => client.mode).toThrow(DreamConfigError);
@@ -131,7 +139,7 @@ describe("DreamClient", () => {
   });
 
   it("refuses config keys it does not take, and checks types before anything is sent", async () => {
-    const client = new DreamClient({ baseUrl: url, platformUrl: url });
+    const client = new DreamClient({ baseUrl: url, headers: RUN, platformUrl: url });
     await expect(client.policy({ checkpoint: "c", host: "x" } as never)).rejects.toThrow(/'host'/);
     await expect(client.policy({ checkpoint: "c", obsWindow: 0, strict: false })).rejects.toThrow(/obsWindow/);
     await expect(client.policy({ checkpoint: "c", timeoutMs: 1.5, strict: false })).rejects.toThrow(/timeoutMs/);

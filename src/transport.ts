@@ -200,9 +200,9 @@ export class Transport {
       });
       status = reply.status;
       // Counted as it streams and cancelled at the limit: a reply with no Content-Length is never buffered whole first.
-      const bytes = reply.body ? await readAll(reply.body, MAX_REPLY_BYTES, abort.signal, 0) : new Uint8Array(0);
-      responseBytes = bytes.length;
-      raw = new TextDecoder().decode(bytes);
+      const read = await readReply(reply, MAX_REPLY_BYTES, abort.signal);
+      responseBytes = read.bytes;
+      raw = read.text;
     } catch (error) {
       if (ended) throw this.aborted(ended, error);
       if (error instanceof BodyError) throw new DreamProtocolError(`inference reply from ${this.baseUrl} is larger than ${MAX_REPLY_BYTES} bytes; is the correct DreamAPI gateway running there?`);
@@ -284,6 +284,52 @@ export class BodyError extends Error {
   constructor(readonly status: number, readonly code: string) {
     super(code);
   }
+}
+
+/** The UTF-8 length of `text`, counted without encoding a copy; stops counting once past `limit`. */
+function utf8Length(text: string, limit: number): number {
+  let bytes = 0;
+  for (let i = 0; i < text.length && bytes <= limit; i++) {
+    const unit = text.charCodeAt(i);
+    if (unit < 0x80) bytes += 1;
+    else if (unit < 0x800) bytes += 2;
+    else if (unit >= 0xd800 && unit <= 0xdbff && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1);
+      // A surrogate pair is one code point of four bytes; a lone surrogate encodes as U+FFFD, three bytes.
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        i++;
+      } else bytes += 3;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+
+/**
+ * A reply's text, within `limit` UTF-8 bytes. Streamed when the Response has a body stream (counted as it arrives and
+ * cancelled at the limit); read with `text()` when it has none, as some fetch implementations give (React Native,
+ * hand-written doubles), then measured. `signal` ends either read.
+ *
+ * @throws BodyError The reply is longer than `limit`.
+ */
+export async function readReply(reply: Response, limit: number, signal: AbortSignal): Promise<{ text: string; bytes: number }> {
+  if (reply.body) {
+    const bytes = await readAll(reply.body, limit, signal, 0);
+    return { text: new TextDecoder().decode(bytes), bytes: bytes.length };
+  }
+  if (typeof reply.text !== "function") return { text: "", bytes: 0 };
+  if (signal.aborted) throw signal.reason;
+  let onAbort: () => void = () => undefined;
+  const text = await Promise.race([
+    reply.text(),
+    new Promise<never>((_, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+    }),
+  ]).finally(() => signal.removeEventListener("abort", onAbort));
+  const bytes = utf8Length(text, limit);
+  if (bytes > limit) throw new BodyError(0, "too large");
+  return { text, bytes };
 }
 
 /** The largest block readAll() starts with; it grows by doubling, never past the limit. */

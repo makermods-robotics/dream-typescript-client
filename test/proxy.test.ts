@@ -446,7 +446,8 @@ describe("nodeHandler", () => {
     const listener = nodeHandler(handler, { drainBytes: 256 * 1024 });
     const closed = signal<number>();
     server = createServer((request, response) => {
-      request.socket.once("close", () => closed.resolve(request.socket.bytesRead));
+      // Only the test's own upload counts: another local process probing the port is answered and left alone.
+      if (request.url === "/v1/get_action") request.socket.once("close", () => closed.resolve(request.socket.bytesRead));
       void listener(request, response);
     });
     await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));

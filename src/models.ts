@@ -7,7 +7,7 @@ import { API_KEY_ENV, authorization, KEY_PER_SITE, requestUrl, safeMessage, scru
 
 export { scrub };
 import { DreamAuthError, DreamConfigError, DreamProtocolError, DreamServerError } from "./errors.js";
-import { BodyError, cancelled, inBrowser, MAX_REPLY_BYTES, readAll, type FetchLike } from "./transport.js";
+import { BodyError, cancelled, inBrowser, MAX_REPLY_BYTES, readReply, type FetchLike } from "./transport.js";
 import { CLIENT_VERSION } from "./version.js";
 
 /** The public Dream-1 checkpoints, as the platform lists them in 2026-10. */
@@ -102,7 +102,7 @@ export async function callService(method: string, path: string, options: Service
       });
       status = reply.status;
       // Counted as it streams and cancelled at the limit: an answer with no Content-Length is never buffered whole.
-      text = reply.body ? new TextDecoder().decode(await readAll(reply.body, MAX_REPLY_BYTES, ends, 0)) : "";
+      text = (await readReply(reply, MAX_REPLY_BYTES, ends)).text;
     } catch (error) {
       if (signal?.aborted) throw cancelled(signal, `${what} was cancelled`);
       // Not retried: the same service would answer the same.

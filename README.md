@@ -475,7 +475,9 @@ These differences are deliberate:
   joins only the joints it has and returns the short rows.
 - **Reply size.** A reply read straight from the gateway, the platform or the data service is counted as it streams
   and refused past 16 MiB (`MAX_REPLY_BYTES` in `@makermods/dreamlabs/internal`), as a proxy refuses an answer past
-  its `maxResponseBytes`.
+  its `maxResponseBytes`: the body is cancelled there, nothing of it is decoded, and the call fails with a
+  `DreamProtocolError` (a platform call is not retried for it). A `fetch` whose responses have no body stream (React
+  Native, a hand-written double) is read through `text()` and held to the same 16 MiB, counted in UTF-8 bytes.
 - **Seam overflow.** A finite reply whose filtered rows overflow (rows alternating near ±1.7e308) is refused as a
   `DreamActionError`, before any arm's plan is kept; Python returns the infinities.
 - **Snapshots.** `setObservation()` and `PolicyClient.getAction()` deep-copy the observation's numbers, so a sensor

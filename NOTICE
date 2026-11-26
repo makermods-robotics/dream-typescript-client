@@ -1,0 +1,30 @@
+@makermods/dreamlabs
+Copyright 2026 MakerMods contributors
+
+Licensed under the Apache License, Version 2.0 (LICENSE).
+
+This package is a TypeScript port of work by Dream Labs, and contains data derived from it:
+
+- dreamlabs-client 1.1.7 (the DreamAPI policy client, import name dream) and parts of dreamlabs 1.0.42 (dream_ik:
+  the arm specifications, the inverse kinematics, the action decoding), https://github.com/dreamlabs-co/dreamlabs.
+  Copyright 2026 Dream Labs. Apache License, Version 2.0.
+- The client's request lifecycle (one request in flight, timeout recovery, idempotent close) was originally derived,
+  in dreamlabs-client, from the policy client of NVIDIA Isaac GR00T (https://github.com/NVIDIA/Isaac-GR00T),
+  Apache License 2.0, Copyright (c) 2025 NVIDIA Corporation.
+
+Robot descriptions (src/ik/arms.data.ts, generated from dream_ik's specs.py and assets/*.urdf; test/fixtures/metal.urdf):
+trimmed kinematic descriptions (joint origins and axes, no meshes) that dream_ik derived from the robot makers' own:
+
+- ROBOTIS AI Worker (https://github.com/ROBOTIS-GIT/ai_worker), Apache License 2.0.
+- Enactic OpenArm (https://github.com/enactic/openarm_description), Apache License 2.0.
+- MakerMods Maker Arm (https://github.com/makermods-robotics/maker-arm-sdk), Apache License 2.0, and the MakerMods
+  Metal arm.
+- SO-101 (https://github.com/TheRobotStudio/SO-ARM100), Apache License 2.0.
+- Unitree R1 (https://github.com/unitreerobotics/unitree_ros), BSD 3-Clause License, Copyright (c) 2016-2022 HangZhou
+  YuShu TECHNOLOGY CO.,LTD.
+- Trossen WidowX AI (https://github.com/TrossenRobotics/trossen_arm_description), BSD 3-Clause License, Copyright (c)
+  2025 Trossen Robotics.
+- The Bracketbot, Blue Worm Mantis, Galaxea, ROBO Robo-T and Seeed reBot B601 descriptions are derived from their
+  makers' own and used with their permission, as stated in the dreamlabs NOTICE.
+
+The texts of the BSD 3-Clause licenses are in THIRD-PARTY-LICENSES.md.

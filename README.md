@@ -16,8 +16,10 @@ TypeScript counterpart of the Python `dreamlabs-client` package (module `dream`)
 - **A proxy for browser apps.** `@makermods/dreamlabs/proxy` forwards the client's calls with your key added, as a
   standard fetch handler for Node, Cloudflare Workers, Deno and Bun. See [The proxy](#the-proxy).
 
-> Status: 0.1.0, local and unpublished (`"private": true` in package.json). Remove `private` before publishing.
-> The license is TBD (see LICENSE).
+> Status: 0.1.0, unpublished (`"private": true` in package.json). Remove `private` before publishing.
+
+Licensed under the Apache License, Version 2.0 (`LICENSE`). It is a port of Dream Labs' `dreamlabs-client` and
+parts of `dreamlabs`; `NOTICE` carries their attribution and that of the robot descriptions.
 
 ## Install
 
